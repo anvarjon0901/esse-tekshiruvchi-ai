@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="uz">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Essay Pilot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css?v=20260501-3" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <div class="glow glow-one"></div>
+      <div class="glow glow-two"></div>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Essay Pilot</p>
+          <h1>Inshoni tekshirishni foydalanuvchi uchun yengil qildik.</h1>
+          <p class="lead">
+            Matn yozing yoki rasm yuklang. Tizim OCR, tahlil va natijani bitta qulay
+            oqimda ko'rsatadi.
+          </p>
+        </div>
+        <div class="hero-status">
+          <div class="status-card">
+            <span class="status-label">Mening limitim</span>
+            <strong id="limitCount">-</strong>
+            <span id="referralBadge" class="pill">Referral tayyorlanmoqda</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel compose-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">1-qadam</p>
+              <h2>Essay yuborish</h2>
+            </div>
+            <div class="mode-switch">
+              <button class="mode-btn active" data-mode="text">Matn</button>
+              <button class="mode-btn" data-mode="image">Rasm</button>
+            </div>
+          </div>
+
+          <div class="identity-box" id="identityBox">
+            <label class="field">
+              <span>Demo Telegram ID</span>
+              <input id="telegramIdInput" type="text" placeholder="Masalan: 998900001122" />
+            </label>
+            <p class="hint">
+              Telegram ichida ochilganda ID avtomatik olinadi. Brauzer demo rejimida shu yerga
+              test ID kiriting.
+            </p>
+          </div>
+
+          <form id="essayForm" class="essay-form">
+            <div class="field-group" id="textFieldGroup">
+              <label class="field">
+                <span>Essay matni</span>
+                <textarea
+                  id="essayText"
+                  name="text"
+                  rows="10"
+                  placeholder="Write your essay here..."
+                ></textarea>
+              </label>
+            </div>
+
+            <div class="field-group hidden" id="imageFieldGroup">
+              <label class="upload-box" for="essayImage">
+                <input id="essayImage" name="images" type="file" accept="image/*" multiple />
+                <span class="upload-title">Rasmlarni tanlang</span>
+                <span class="upload-subtitle">
+                  Uzun essay uchun bir nechta sahifani tartib bilan tanlang
+                </span>
+              </label>
+              <div id="imagePreview" class="image-preview hidden"></div>
+            </div>
+
+            <button id="submitBtn" class="primary-btn" type="submit">
+              Inshoni tekshirish
+            </button>
+          </form>
+
+          <div class="process-strip">
+            <div class="mini-step">Yuborish</div>
+            <div class="mini-step">OCR / Tozalash</div>
+            <div class="mini-step">AI tahlil</div>
+            <div class="mini-step">Natija</div>
+          </div>
+        </section>
+
+        <section class="panel result-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">2-qadam</p>
+              <h2>Natija</h2>
+            </div>
+            <span id="resultStatus" class="pill neutral">Kutilmoqda</span>
+          </div>
+
+          <div id="emptyState" class="empty-state">
+            Birinchi essay yuborilgach, bu yerda ball, daraja, xatolar va tavsiyalar chiqadi.
+          </div>
+
+          <div id="resultContent" class="result-content hidden">
+            <div class="score-grid">
+              <div class="metric-card accent">
+                <span>Umumiy ball</span>
+                <strong id="scoreValue">0</strong>
+              </div>
+              <div class="metric-card">
+                <span>Daraja</span>
+                <strong id="cefrValue">A1</strong>
+              </div>
+              <div class="metric-card">
+                <span>Provider</span>
+                <strong id="providerValue">demo</strong>
+              </div>
+            </div>
+
+            <div class="analysis-columns">
+              <div>
+                <h3>Rubrika</h3>
+                <div id="rubricList" class="stack-list"></div>
+              </div>
+              <div>
+                <h3>Xatolar</h3>
+                <div id="grammarErrors" class="stack-list"></div>
+                <div id="spellingErrors" class="stack-list compact"></div>
+              </div>
+            </div>
+
+            <div class="section-card">
+              <h3>Takliflar</h3>
+              <div id="suggestionList" class="stack-list"></div>
+            </div>
+
+            <div class="section-card hidden" id="improvedCard">
+              <h3>Yaxshilangan versiya</h3>
+              <p id="improvedVersion" class="mono-block"></p>
+            </div>
+
+            <div class="section-card hidden" id="ocrCard">
+              <h3>OCR matni</h3>
+              <p id="ocrText" class="mono-block"></p>
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel sidebar-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Hisob</p>
+              <h2>Profil va tarix</h2>
+            </div>
+          </div>
+
+          <div class="profile-card">
+            <p id="userName">Foydalanuvchi aniqlanmoqda...</p>
+            <p class="muted">Referral kod</p>
+            <strong id="referralCode">-</strong>
+          </div>
+
+          <div class="referral-box">
+            <label class="field">
+              <span>Referral code ishlatish</span>
+              <input id="referralInput" type="text" placeholder="Masalan: 8AC42BFF" />
+            </label>
+            <button id="referralBtn" class="secondary-btn" type="button">Kod qo'llash</button>
+          </div>
+
+          <div>
+            <div class="list-head">
+              <h3>So'nggi tekshiruvlar</h3>
+              <button id="refreshHistoryBtn" class="ghost-btn" type="button">Yangilash</button>
+            </div>
+            <div id="historyList" class="history-list"></div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="/static/app.js?v=20260501-3"></script>
+  </body>
+</html>
