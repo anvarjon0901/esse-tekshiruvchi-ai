@@ -1,0 +1,14 @@
+INFO:     127.0.0.1:12037 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET / HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /static/app.js?v=20260501-3 HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /static/style.css?v=20260501-3 HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     185.213.229.161:0 - "POST /api/users/bootstrap HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /api/submissions?telegram_id=7278475355 HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "POST /api/submissions HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /api/users/7278475355 HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /api/submissions?telegram_id=7278475355 HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /api/submissions/14 HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /api/users/7278475355 HTTP/1.1" 200 OK
+INFO:     185.213.229.161:0 - "GET /api/submissions?telegram_id=7278475355 HTTP/1.1" 200 OK

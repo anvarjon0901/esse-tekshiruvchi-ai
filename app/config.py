@@ -25,11 +25,7 @@ class Settings:
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_ocr_model: str = os.getenv("GEMINI_OCR_MODEL", "gemini-2.5-flash").strip()
-    gemini_analysis_model: str = os.getenv("GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash").strip()
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    run_bot_with_web: bool = os.getenv("RUN_BOT_WITH_WEB", "false").strip().lower() in {"1", "true", "yes"}
-    telegram_bot_mode: str = os.getenv("TELEGRAM_BOT_MODE", "polling").strip().lower()
-    telegram_webhook_secret: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
     admin_secret: str = os.getenv("ADMIN_SECRET", "change-me").strip()
 
     def ensure_paths(self) -> None:
