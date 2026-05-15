@@ -83,13 +83,8 @@ async def submit_essay(
     username: str = Form(default=""),
     text: str = Form(default=""),
     image: UploadFile | None = File(default=None),
-    images: list[UploadFile] | None = File(default=None),
 ) -> dict:
-    upload_files = [file for file in images or [] if file.filename]
-    if image is not None and image.filename:
-        upload_files.append(image)
-
-    if not text.strip() and not upload_files:
+    if not text.strip() and image is None:
         raise HTTPException(status_code=400, detail="Matn yoki rasm yuboring.")
 
     user = create_or_get_user(telegram_id=telegram_id, full_name=full_name, username=username)
@@ -97,12 +92,11 @@ async def submit_essay(
     if not consumed_limit_type:
         raise HTTPException(status_code=402, detail="Limit tugagan. To'lov yoki referral kerak.")
 
-    image_paths: list[str] = []
+    image_path = None
     source_type = "text"
-    if upload_files:
-        for upload in upload_files:
-            image_bytes = await upload.read()
-            image_paths.append(save_upload_file(upload.filename or "essay.jpg", image_bytes))
+    if image is not None:
+        image_bytes = await image.read()
+        image_path = save_upload_file(image.filename or "essay.jpg", image_bytes)
         source_type = "image"
 
     try:
@@ -111,7 +105,7 @@ async def submit_essay(
             source_type=source_type,
             consumed_limit_type=consumed_limit_type,
             input_text=text.strip() or None,
-            image_paths=image_paths,
+            image_path=image_path,
         )
     except Exception:
         refund_user_limit(user["id"], consumed_limit_type)
@@ -143,19 +137,10 @@ def process_submission(submission_id: int) -> None:
 
         ocr_text = None
         if submission["source_type"] == "image":
-            image_paths = submission.get("image_paths") or []
-            if not image_paths and submission.get("image_path"):
-                image_paths = [submission["image_path"]]
-            if not image_paths:
+            if not submission["image_path"] or not Path(submission["image_path"]).exists():
                 raise ValueError("Rasm fayli topilmadi.")
-            ocr_parts: list[str] = []
-            for index, image_path in enumerate(image_paths, start=1):
-                if not Path(image_path).exists():
-                    raise ValueError(f"{index}-rasm fayli topilmadi.")
-                ocr_result = extract_text_from_image(image_path)
-                if ocr_result.text.strip():
-                    ocr_parts.append(f"{index}-rasm:\n{ocr_result.text.strip()}")
-            ocr_text = "\n\n".join(ocr_parts)
+            ocr_result = extract_text_from_image(submission["image_path"])
+            ocr_text = ocr_result.text
             cleaned_text = clean_ocr_text(ocr_text)
         else:
             cleaned_text = clean_ocr_text(submission.get("input_text") or "")
