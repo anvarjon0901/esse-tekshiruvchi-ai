@@ -20,3 +20,24 @@
 2026-05-01T05:00:39Z INF ICMP proxy will use fe80::2bba:8d71:a1df:67a in zone Беспроводная сеть as source for IPv6
 2026-05-01T05:00:39Z INF Starting metrics server on 127.0.0.1:20241/metrics
 2026-05-01T05:00:39Z INF Registered tunnel connection connIndex=0 connection=2244200e-be94-4d5a-be70-8b9ee030a055 event=0 ip=198.41.200.53 location=waw02 protocol=quic
+2026-05-01T05:20:53Z ERR failed to accept incoming stream requests error="failed to accept QUIC stream: timeout: no recent network activity" connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:20:53Z ERR failed to run the datagram handler error="timeout: no recent network activity" connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:20:53Z ERR failed to serve tunnel connection error="accept stream listener encountered a failure while serving" connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:20:53Z ERR Serve tunnel error error="accept stream listener encountered a failure while serving" connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:20:53Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:20:54Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveP256] connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:20:58Z INF Registered tunnel connection connIndex=0 connection=88374ccc-e531-41bd-a7bb-5ec4290ffdf5 event=0 ip=198.41.200.53 location=waw02 protocol=quic
+2026-05-01T05:52:49Z ERR Failed to refresh DNS local resolver error="lookup region1.v2.argotunnel.com: i/o timeout"
+2026-05-01T05:53:02Z ERR failed to run the datagram handler error="timeout: no recent network activity" connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:53:02Z ERR failed to accept incoming stream requests error="failed to accept QUIC stream: timeout: no recent network activity" connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:53:02Z ERR failed to serve tunnel connection error="datagram manager encountered a failure while serving" connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:53:02Z ERR Serve tunnel error error="datagram manager encountered a failure while serving" connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:53:02Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:53:02Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveP256] connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:53:04Z INF Initiating graceful shutdown due to signal terminated ...
+2026-05-01T05:53:07Z ERR Failed to dial a quic connection error="failed to dial to edge with quic: timeout: no recent network activity" connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:53:07Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.200.53
+2026-05-01T05:53:07Z ERR Connection terminated connIndex=0
+2026-05-01T05:53:07Z ERR no more connections active and exiting
+2026-05-01T05:53:07Z INF Tunnel server stopped
+2026-05-01T05:53:07Z INF Metrics server stopped
