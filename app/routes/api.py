@@ -27,6 +27,7 @@ from app.storage import (
     save_upload_file,
     update_submission_status,
 )
+from app.telegram_auth import authorize_telegram_id
 
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -38,26 +39,38 @@ def health() -> dict:
 
 
 @router.post("/users/bootstrap", response_model=UserResponse)
-def bootstrap_user(payload: UserBootstrapRequest) -> dict:
+def bootstrap_user(
+    payload: UserBootstrapRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+) -> dict:
+    telegram_id = authorize_telegram_id(x_telegram_init_data, payload.telegram_id)
     return create_or_get_user(
-        telegram_id=payload.telegram_id,
+        telegram_id=telegram_id,
         full_name=payload.full_name,
         username=payload.username,
     )
 
 
 @router.get("/users/{telegram_id}", response_model=UserResponse)
-def get_user(telegram_id: str) -> dict:
-    user = get_user_by_telegram_id(telegram_id)
+def get_user(
+    telegram_id: str,
+    x_telegram_init_data: str | None = Header(default=None),
+) -> dict:
+    authorized_telegram_id = authorize_telegram_id(x_telegram_init_data, telegram_id)
+    user = get_user_by_telegram_id(authorized_telegram_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Foydalanuvchi topilmadi.")
     return user
 
 
 @router.post("/referrals/claim", response_model=UserResponse)
-def claim_user_referral(payload: ReferralClaimRequest) -> dict:
+def claim_user_referral(
+    payload: ReferralClaimRequest,
+    x_telegram_init_data: str | None = Header(default=None),
+) -> dict:
+    telegram_id = authorize_telegram_id(x_telegram_init_data, payload.telegram_id)
     try:
-        return claim_referral(payload.telegram_id, payload.referral_code.strip().upper())
+        return claim_referral(telegram_id, payload.referral_code.strip().upper())
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -78,6 +91,7 @@ def confirm_user_payment(
 @router.post("/submissions", response_model=SubmissionResponse)
 async def submit_essay(
     background_tasks: BackgroundTasks,
+    x_telegram_init_data: str | None = Header(default=None),
     telegram_id: str = Form(...),
     full_name: str = Form(default=""),
     username: str = Form(default=""),
@@ -92,7 +106,8 @@ async def submit_essay(
     if not text.strip() and not upload_files:
         raise HTTPException(status_code=400, detail="Matn yoki rasm yuboring.")
 
-    user = create_or_get_user(telegram_id=telegram_id, full_name=full_name, username=username)
+    authorized_telegram_id = authorize_telegram_id(x_telegram_init_data, telegram_id)
+    user = create_or_get_user(telegram_id=authorized_telegram_id, full_name=full_name, username=username)
     consumed_limit_type = consume_user_limit(user["id"])
     if not consumed_limit_type:
         raise HTTPException(status_code=402, detail="Limit tugagan. To'lov yoki referral kerak.")
@@ -121,16 +136,31 @@ async def submit_essay(
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionResponse)
-def get_submission_by_id(submission_id: int) -> dict:
+def get_submission_by_id(
+    submission_id: int,
+    telegram_id: str | None = None,
+    x_telegram_init_data: str | None = Header(default=None),
+) -> dict:
     submission = get_submission(submission_id)
     if submission is None:
         raise HTTPException(status_code=404, detail="Submission topilmadi.")
+    authorized_telegram_id = authorize_telegram_id(x_telegram_init_data, telegram_id)
+    user = get_user_by_telegram_id(authorized_telegram_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Foydalanuvchi topilmadi.")
+    if submission["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Bu submission sizga tegishli emas.")
     return submission
 
 
 @router.get("/submissions", response_model=list[SubmissionSummary])
-def list_submissions(telegram_id: str, limit: int = 10) -> list[dict]:
-    return list_submissions_for_telegram_id(telegram_id=telegram_id, limit=limit)
+def list_submissions(
+    telegram_id: str,
+    limit: int = 10,
+    x_telegram_init_data: str | None = Header(default=None),
+) -> list[dict]:
+    authorized_telegram_id = authorize_telegram_id(x_telegram_init_data, telegram_id)
+    return list_submissions_for_telegram_id(telegram_id=authorized_telegram_id, limit=limit)
 
 
 def process_submission(submission_id: int) -> None:

@@ -28,6 +28,10 @@ services:
         value: webhook
       - key: TELEGRAM_WEBHOOK_SECRET
         generateValue: true
+      - key: ALLOW_DEMO_AUTH
+        value: "false"
+      - key: TELEGRAM_AUTH_MAX_AGE_SECONDS
+        value: "86400"
       - key: ADMIN_TELEGRAM_IDS
         sync: false
       - key: PAYMENT_CARD

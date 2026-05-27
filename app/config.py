@@ -30,6 +30,8 @@ class Settings:
     run_bot_with_web: bool = os.getenv("RUN_BOT_WITH_WEB", "false").strip().lower() in {"1", "true", "yes"}
     telegram_bot_mode: str = os.getenv("TELEGRAM_BOT_MODE", "polling").strip().lower()
     telegram_webhook_secret: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+    telegram_auth_max_age_seconds: int = int(os.getenv("TELEGRAM_AUTH_MAX_AGE_SECONDS", "86400"))
+    allow_demo_auth: bool = os.getenv("ALLOW_DEMO_AUTH", "false").strip().lower() in {"1", "true", "yes"}
     admin_telegram_ids: str = os.getenv("ADMIN_TELEGRAM_IDS", "").strip()
     payment_card: str = (
         os.getenv("PAYMENT_CARD")

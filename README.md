@@ -107,6 +107,34 @@ Bot `/start` da WebApp tugmasini yuboradi.
 - `OPENAI_API_KEY` bo'lsa, OpenAI orqali JSON natija olishga harakat qiladi
 - xatolik bo'lsa yoki kalit bo'lmasa, demo evaluator ishlaydi
 
+## Telegram WebApp xavfsizligi
+
+Frontend Telegram ichida ochilganda `initData` ni backendga yuboradi. Backend shu imzoni
+`TELEGRAM_BOT_TOKEN` orqali tekshiradi va so'rovdagi `telegram_id` aynan shu
+foydalanuvchiga tegishli ekanini tasdiqlaydi.
+
+Mahalliy brauzer demo rejimi kerak bo'lsa, `.env` ichida vaqtincha quyidagini yoqing:
+
+```text
+ALLOW_DEMO_AUTH=true
+```
+
+Production uchun `ALLOW_DEMO_AUTH=false` qoldiring.
+
+## Admin sozlamalari
+
+Bot orqali admin bo'lish:
+
+```text
+/setadminme <ADMIN_SECRET>
+```
+
+Yoki `.env` ichida:
+
+```text
+ADMIN_TELEGRAM_IDS=123456789
+```
+
 ## Admin endpoint
 
 Manual to'lovni tasdiqlash uchun:
@@ -135,3 +163,6 @@ Body:
 - Production rejimida prompt, rubrika va moderation qat'iylashtirilishi kerak
 - Qo'lda yozilgan matn uchun OCR har doim ham 100% aniq bo'lmaydi
 - PaddleOCR birinchi ishga tushganda model yuklab olgani uchun birinchi OCR seansi sekinroq bo'lishi mumkin
+- Render Free web service lokal SQLite bazasi va upload fayllarni redeploy, restart yoki
+  spin-down paytida yo'qotishi mumkin. Production uchun paid persistent disk yoki tashqi
+  database/storage ishlating.

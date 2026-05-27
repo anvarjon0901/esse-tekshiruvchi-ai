@@ -7,6 +7,8 @@ import requests
 from app.config import settings
 
 
+WORD_PATTERN = re.compile("[A-Za-z\\u00c0-\\u017f\\u02bb\\u2019']+")
+
 SYSTEM_PROMPT = """
 You are a strict but helpful writing examiner for Uzbek and English essays.
 Evaluate only the essay that the user provides. Do not invent a new essay.
@@ -112,7 +114,7 @@ def _analyze_with_openai(text: str) -> dict:
                 {
                     "role": "user",
                     "content": (
-                        "Analyze this essay strictly and return JSON only.\n\n"
+                        "Analyze this Uzbek or English essay strictly and return JSON only.\n\n"
                         f"Essay:\n{text}"
                     ),
                 },
@@ -241,7 +243,7 @@ def _format_provider_error(response: requests.Response, provider: str) -> str:
 
 def _demo_analysis(text: str, provider: str) -> dict:
     language = _detect_language(text)
-    words = re.findall(r"[A-Za-zÀ-žʻ’']+", text)
+    words = WORD_PATTERN.findall(text)
     sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+", text.strip()) if item.strip()]
     word_count = len(words)
     sentence_count = len(sentences)
@@ -385,7 +387,7 @@ def _detect_spelling_issues(text: str) -> list[dict]:
         "yani": "ya'ni",
     }
     findings = []
-    lowered = re.findall(r"[A-Za-zÀ-žʻ’']+", text.lower())
+    lowered = WORD_PATTERN.findall(text.lower())
     for typo, corrected in common_typos.items():
         if typo in lowered:
             findings.append({"wrong": typo, "corrected": corrected})

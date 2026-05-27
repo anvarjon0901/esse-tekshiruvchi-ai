@@ -1,6 +1,11 @@
 import asyncio
 import json
+import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.exceptions import TelegramBadRequest
@@ -13,7 +18,7 @@ from app.storage import claim_referral, confirm_payment, create_or_get_user, get
 
 
 dp = Dispatcher()
-BOT_SETTINGS_PATH = Path("data/bot_settings.json")
+BOT_SETTINGS_PATH = PROJECT_ROOT / "data" / "bot_settings.json"
 PENDING_PAYMENTS: dict[str, dict] = {}
 
 PAYMENT_PACKAGES = {
@@ -322,8 +327,18 @@ async def my_id_command(message: Message) -> None:
 
 
 @dp.message(Command("setadminme"))
-async def set_admin_me_command(message: Message) -> None:
+async def set_admin_me_command(message: Message, command: CommandObject) -> None:
     telegram_id = str(message.from_user.id) if message.from_user else ""
+    provided_secret = (command.args or "").strip()
+    if not _is_admin(telegram_id):
+        if not settings.admin_secret or settings.admin_secret == "change-me" or provided_secret != settings.admin_secret:
+            await message.answer(
+                "Admin bo'lish uchun ADMIN_SECRET kerak.\n\n"
+                "Format: /setadminme ADMIN_SECRET\n"
+                "Yoki .env ichida ADMIN_TELEGRAM_IDS ga o'z Telegram ID'ingizni yozing."
+            )
+            return
+
     saved = _load_bot_settings()
     admin_ids = {str(item) for item in saved.get("admin_telegram_ids", [])}
     admin_ids.add(telegram_id)
@@ -340,7 +355,7 @@ async def set_admin_me_command(message: Message) -> None:
 async def set_payment_command(message: Message, command: CommandObject) -> None:
     sender_id = str(message.from_user.id) if message.from_user else ""
     if not _is_admin(sender_id):
-        await message.answer("Avval /setadminme orqali o'zingizni admin qiling.")
+        await message.answer("Bu komanda faqat admin uchun. Admin qilish uchun /setadminme ADMIN_SECRET ishlating.")
         return
 
     args = command.args or ""
@@ -397,7 +412,7 @@ async def help_command(message: Message) -> None:
         "/pay - limit sotib olish\n\n"
         "/myid - Telegram ID ni ko'rish\n\n"
         "Admin uchun:\n"
-        "/setadminme - o'zingizni admin qilish\n"
+        "/setadminme ADMIN_SECRET - o'zingizni admin qilish\n"
         "/setpayment KARTA | EGASI | USERNAME\n"
         "/addlimit TELEGRAM_ID LIMIT izoh",
         reply_markup=_main_keyboard(),
@@ -406,13 +421,12 @@ async def help_command(message: Message) -> None:
 
 @dp.message(Command("addlimit"))
 async def add_limit_command(message: Message, command: CommandObject) -> None:
-    admin_ids = settings.admin_telegram_id_set()
     sender_id = str(message.from_user.id) if message.from_user else ""
-    if not admin_ids or sender_id not in admin_ids:
+    if not _is_admin(sender_id):
         await message.answer(
             "Bu komanda faqat admin uchun.\n\n"
             f"Sizning Telegram ID: {sender_id}\n"
-            "Admin qilish uchun .env ichida ADMIN_TELEGRAM_IDS ga shu ID ni yozing."
+            "Admin qilish uchun /setadminme ADMIN_SECRET ishlating yoki .env ichida ADMIN_TELEGRAM_IDS ga shu ID ni yozing."
         )
         return
 

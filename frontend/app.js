@@ -45,6 +45,7 @@ if (telegramApp) {
   telegramApp.ready();
   telegramApp.expand();
 }
+const telegramInitData = telegramApp?.initData || "";
 
 document.querySelectorAll(".mode-btn").forEach((button) => {
   button.addEventListener("click", () => switchMode(button.dataset.mode));
@@ -220,7 +221,7 @@ function resetWorkspace() {
 function startPolling(submissionId) {
   stopPolling();
   state.pollingTimer = window.setInterval(async () => {
-    const submission = await api(`/api/submissions/${submissionId}`);
+    const submission = await api(submissionPath(submissionId));
     renderSubmission(submission);
     if (["completed", "failed"].includes(submission.status)) {
       stopPolling();
@@ -401,10 +402,17 @@ function renderHistory(history) {
 
   document.querySelectorAll(".history-item[data-id]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const submission = await api(`/api/submissions/${button.dataset.id}`);
+      const submission = await api(submissionPath(button.dataset.id));
       renderSubmission(submission);
     });
   });
+}
+
+function submissionPath(submissionId) {
+  if (!state.user?.telegram_id) {
+    return `/api/submissions/${submissionId}`;
+  }
+  return `/api/submissions/${submissionId}?telegram_id=${encodeURIComponent(state.user.telegram_id)}`;
 }
 
 function updateStatus(text, tone) {
@@ -449,7 +457,11 @@ function formatKey(key) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const headers = new Headers(options.headers || {});
+  if (telegramInitData) {
+    headers.set("X-Telegram-Init-Data", telegramInitData);
+  }
+  const response = await fetch(path, { ...options, headers });
   if (!response.ok) {
     let detail = "So'rov bajarilmadi.";
     try {
