@@ -7,67 +7,32 @@ import requests
 from app.config import settings
 
 
-WORD_PATTERN = re.compile("[A-Za-z\\u00c0-\\u017f\\u0400-\\u04ff\\u02bb\\u2019']+")
-
-UZBEK_CRITERIA = [
-    ("topic_coverage", "Mavzuni yoritish", 8),
-    ("thesis_position", "Tezis va pozitsiya", 6),
-    ("arguments_examples", "Dalil va misollar", 7),
-    ("logical_coherence", "Mantiqiy izchillik", 7),
-    ("structure", "Kompozitsiya", 6),
-    ("style_register", "Uslub va registr", 5),
-    ("vocabulary", "Lug'at boyligi", 6),
-    ("grammar", "Grammatika", 7),
-    ("spelling", "Imlo", 6),
-    ("punctuation", "Punktuatsiya", 5),
-    ("conclusion", "Xulosa", 5),
-    ("length_requirements", "Hajm va talabga moslik", 7),
-]
-
-IELTS_CRITERIA = [
-    ("task_response", "Task Response"),
-    ("coherence_cohesion", "Coherence and Cohesion"),
-    ("lexical_resource", "Lexical Resource"),
-    ("grammar_range_accuracy", "Grammatical Range and Accuracy"),
-]
+WORD_PATTERN = re.compile("[A-Za-z\\u00c0-\\u017f\\u02bb\\u2019']+")
 
 SYSTEM_PROMPT = """
-You are a strict but helpful examiner for Uzbek and English essays.
-Evaluate only the essay the user provides. Do not invent or rewrite the essay.
-Use Uzbek language for all comments, explanations, summaries, and suggestions.
-
-First detect the dominant language:
-- Uzbek essays must be graded on a 75-point system with exactly 12 criteria.
-- English essays must be graded using IELTS Writing Task 2 style bands from 0 to 9.
-- If the essay mixes languages, evaluate the dominant language and mention code-mixing if it hurts clarity.
-
-Return only valid JSON with this structure:
+You are a strict but helpful writing examiner for Uzbek and English essays.
+Evaluate only the essay that the user provides. Do not invent a new essay.
+Use the Uzbek language for comments, explanations, summary, and suggestions.
+Give noticeably different scores for weak, average, and strong essays.
+Score each rubric category from 0 to 75, then set the overall score as a realistic weighted result.
+Suggestions must be short advice only, not a rewritten essay.
+Do not write a full rewritten essay. Keep improved_version as an empty string.
+First detect the essay language:
+- If it is Uzbek, evaluate Uzbek spelling, apostrophe usage (o', g'), suffixes, sentence structure, style, vocabulary, coherence, and task response.
+- If it is English, evaluate English grammar, spelling, vocabulary, coherence, and task response.
+- If it mixes Uzbek and English, evaluate the dominant language and mention code-mixing if it hurts clarity.
+Use "cefr" as a general level field:
+- For English essays, use CEFR-like values: A1, A2, B1, B2, C1.
+- For Uzbek essays, use Uzbek labels: "Boshlang'ich", "O'rta", "Yaxshi", "Juda yaxshi", "A'lo".
+Return only valid JSON with this exact structure:
 {
-  "language": "uzbek or english",
-  "scoring_system": "uzbek_75 or ielts",
   "score": 0,
-  "score_display": "",
-  "cefr": "",
+  "cefr": "A1",
   "rubric": {
-    "topic_coverage": {"score": 0, "max_score": 8, "comment": ""},
-    "thesis_position": {"score": 0, "max_score": 6, "comment": ""},
-    "arguments_examples": {"score": 0, "max_score": 7, "comment": ""},
-    "logical_coherence": {"score": 0, "max_score": 7, "comment": ""},
-    "structure": {"score": 0, "max_score": 6, "comment": ""},
-    "style_register": {"score": 0, "max_score": 5, "comment": ""},
-    "vocabulary": {"score": 0, "max_score": 6, "comment": ""},
-    "grammar": {"score": 0, "max_score": 7, "comment": ""},
-    "spelling": {"score": 0, "max_score": 6, "comment": ""},
-    "punctuation": {"score": 0, "max_score": 5, "comment": ""},
-    "conclusion": {"score": 0, "max_score": 5, "comment": ""},
-    "length_requirements": {"score": 0, "max_score": 7, "comment": ""}
-  },
-  "ielts": {
-    "task_response": {"band": 0, "comment": ""},
-    "coherence_cohesion": {"band": 0, "comment": ""},
-    "lexical_resource": {"band": 0, "comment": ""},
-    "grammar_range_accuracy": {"band": 0, "comment": ""},
-    "overall_band": 0
+    "grammar": {"score": 0, "comment": ""},
+    "vocabulary": {"score": 0, "comment": ""},
+    "coherence": {"score": 0, "comment": ""},
+    "task_response": {"score": 0, "comment": ""}
   },
   "grammar_errors": [
     {"wrong": "", "corrected": "", "explanation": ""}
@@ -79,20 +44,6 @@ Return only valid JSON with this structure:
   "improved_version": "",
   "summary": ""
 }
-
-For Uzbek essays:
-- Use only the 12 Uzbek rubric keys above.
-- The total score must be an integer from 0 to 75.
-- score_display must look like "62/75".
-- cefr should be an Uzbek level label: "Boshlang'ich", "O'rta", "Yaxshi", "Juda yaxshi", or "A'lo".
-- Leave ielts.overall_band as 0.
-
-For English essays:
-- Use IELTS bands for the four IELTS criteria, allowing .5 bands.
-- score must be the IELTS overall band multiplied by 10, for example 6.5 becomes 65.
-- score_display must look like "6.5/9 IELTS".
-- cefr must look like "IELTS 6.5".
-- rubric should contain the same four IELTS criteria with score equal to the band and max_score 9.
 """.strip()
 
 
@@ -100,12 +51,12 @@ def analyze_essay(text: str) -> dict:
     normalized_text = text.strip()
     if settings.gemini_api_key:
         try:
-            return _normalize_analysis(_analyze_with_gemini(normalized_text), provider="gemini", text=normalized_text)
+            return _normalize_analysis(_analyze_with_gemini(normalized_text), provider="gemini")
         except Exception:
             pass
     if settings.openai_api_key:
         try:
-            return _normalize_analysis(_analyze_with_openai(normalized_text), provider="openai", text=normalized_text)
+            return _normalize_analysis(_analyze_with_openai(normalized_text), provider="openai")
         except Exception:
             return _demo_analysis(normalized_text, provider="demo-fallback")
     return _demo_analysis(normalized_text, provider="demo")
@@ -194,446 +145,54 @@ def _loads_json_content(content: str) -> dict:
     return payload
 
 
-def _normalize_analysis(analysis: dict, provider: str, text: str) -> dict:
-    language = _normalize_language(analysis.get("language"), text)
-    if language == "uzbek":
-        return _normalize_uzbek_analysis(analysis, provider)
-    return _normalize_ielts_analysis(analysis, provider)
-
-
-def _normalize_uzbek_analysis(analysis: dict, provider: str) -> dict:
-    raw_rubric = analysis.get("rubric") if isinstance(analysis.get("rubric"), dict) else {}
-    rubric = {}
-    for key, label, max_score in UZBEK_CRITERIA:
-        raw_item = raw_rubric.get(key) if isinstance(raw_rubric.get(key), dict) else {}
-        fallback = round(max_score * 0.6)
-        score = _normalize_score(raw_item.get("score", fallback), max_score)
-        rubric[key] = {
-            "score": score,
-            "max_score": max_score,
-            "label": label,
-            "comment": str(raw_item.get("comment", "")).strip()[:280] or _uzbek_criterion_comment(key, score, max_score),
+def _normalize_analysis(analysis: dict, provider: str) -> dict:
+    rubric = analysis.get("rubric") if isinstance(analysis.get("rubric"), dict) else {}
+    normalized_rubric = {}
+    for key in ("grammar", "vocabulary", "coherence", "task_response"):
+        item = rubric.get(key) if isinstance(rubric.get(key), dict) else {}
+        normalized_rubric[key] = {
+            "score": _clamp_score(item.get("score", 0)),
+            "comment": str(item.get("comment", "")).strip()[:280],
         }
 
-    score = _clamp_int(analysis.get("score", sum(item["score"] for item in rubric.values())), 0, 75)
+    score = _clamp_score(analysis.get("score", _weighted_score(normalized_rubric)))
     return {
-        "language": "uzbek",
-        "scoring_system": "uzbek_75",
         "score": score,
-        "score_display": f"{score}/75",
-        "cefr": _normalize_uzbek_level(analysis.get("cefr"), score),
-        "rubric": rubric,
-        "ielts": _empty_ielts(),
+        "cefr": _normalize_level(analysis.get("cefr"), score),
+        "rubric": normalized_rubric,
         "grammar_errors": _sanitize_error_list(analysis.get("grammar_errors"), include_explanation=True),
         "spelling_errors": _sanitize_error_list(analysis.get("spelling_errors"), include_explanation=False),
         "suggestions": _sanitize_suggestions(analysis.get("suggestions")),
         "improved_version": "",
-        "summary": str(analysis.get("summary", "")).strip()[:500] or "Esse 75 ballik mezonlar asosida baholandi.",
+        "summary": str(analysis.get("summary", "")).strip()[:500],
         "provider": provider,
     }
 
 
-def _normalize_ielts_analysis(analysis: dict, provider: str) -> dict:
-    raw_ielts = analysis.get("ielts") if isinstance(analysis.get("ielts"), dict) else {}
-    raw_rubric = analysis.get("rubric") if isinstance(analysis.get("rubric"), dict) else {}
-    rubric = {}
-    ielts = {}
-    bands = []
-    for key, label in IELTS_CRITERIA:
-        raw_item = raw_ielts.get(key) if isinstance(raw_ielts.get(key), dict) else raw_rubric.get(key, {})
-        if not isinstance(raw_item, dict):
-            raw_item = {}
-        band = _normalize_band(raw_item.get("band", raw_item.get("score", 5.0)))
-        bands.append(band)
-        comment = str(raw_item.get("comment", "")).strip()[:280] or _ielts_comment(key, band)
-        ielts[key] = {"band": band, "comment": comment}
-        rubric[key] = {
-            "score": band,
-            "max_score": 9,
-            "label": label,
-            "comment": comment,
-        }
-
-    overall = _normalize_band(raw_ielts.get("overall_band", analysis.get("overall_band", _round_half(sum(bands) / 4))))
-    ielts["overall_band"] = overall
-    score = int(round(overall * 10))
-    return {
-        "language": "english",
-        "scoring_system": "ielts",
-        "score": score,
-        "score_display": f"{_format_band(overall)}/9 IELTS",
-        "cefr": f"IELTS {_format_band(overall)}",
-        "rubric": rubric,
-        "ielts": ielts,
-        "grammar_errors": _sanitize_error_list(analysis.get("grammar_errors"), include_explanation=True),
-        "spelling_errors": _sanitize_error_list(analysis.get("spelling_errors"), include_explanation=False),
-        "suggestions": _sanitize_suggestions(analysis.get("suggestions")),
-        "improved_version": "",
-        "summary": str(analysis.get("summary", "")).strip()[:500] or "Essay IELTS Writing mezonlari asosida baholandi.",
-        "provider": provider,
-    }
-
-
-def _demo_analysis(text: str, provider: str) -> dict:
-    language = _detect_language(text)
-    if language == "uzbek":
-        return _demo_uzbek_analysis(text, provider)
-    return _demo_ielts_analysis(text, provider)
-
-
-def _demo_uzbek_analysis(text: str, provider: str) -> dict:
-    words = WORD_PATTERN.findall(text)
-    sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+", text.strip()) if item.strip()]
-    word_count = len(words)
-    sentence_count = len(sentences)
-    unique_ratio = (len(set(word.lower() for word in words)) / word_count) if word_count else 0
-    connector_count = _count_connectors(text)
-    paragraphs = [item for item in re.split(r"\n\s*\n", text.strip()) if item.strip()]
-    grammar_errors = _detect_grammar_issues(text)
-    spelling_errors = _detect_spelling_issues(text)
-
-    rubric = {
-        "topic_coverage": _criterion(8, _range_score(word_count, 40, 180, 3, 8), "Mavzu qanchalik to'liq ochilgani baholandi."),
-        "thesis_position": _criterion(6, _range_score(word_count + connector_count * 15, 60, 180, 2, 6), "Asosiy fikr va pozitsiya aniqligi tekshirildi."),
-        "arguments_examples": _criterion(7, _range_score(connector_count * 35 + word_count, 90, 260, 2, 7), "Dalil, misol va izohlar kuchi baholandi."),
-        "logical_coherence": _criterion(7, _range_score(sentence_count * 22 + connector_count * 25, 70, 260, 2, 7), "Fikrlar orasidagi mantiqiy bog'lanish ko'rildi."),
-        "structure": _criterion(6, _range_score(len(paragraphs) * 55 + sentence_count * 8, 55, 180, 2, 6), "Kirish, asosiy qism va xulosa tuzilishi baholandi."),
-        "style_register": _criterion(5, _range_score(word_count, 50, 160, 2, 5), "Uslubning insho talabiga mosligi tekshirildi."),
-        "vocabulary": _criterion(6, _range_score(int(unique_ratio * 100), 45, 80, 2, 6), "So'z boyligi va takrorlar baholandi."),
-        "grammar": _criterion(7, max(1, 7 - len(grammar_errors)), "Gap qurilishi va grammatik nazorat tekshirildi."),
-        "spelling": _criterion(6, max(1, 6 - len(spelling_errors)), "Imlo va apostrof ishlatilishi ko'rildi."),
-        "punctuation": _criterion(5, _punctuation_score(text, sentences), "Tinish belgilaridan foydalanish baholandi."),
-        "conclusion": _criterion(5, _conclusion_score(text), "Xulosa borligi va yakuniy fikr baholandi."),
-        "length_requirements": _criterion(7, _uzbek_length_score(word_count), "Hajm va topshiriq talabiga moslik baholandi."),
-    }
-    for key, label, _max_score in UZBEK_CRITERIA:
-        rubric[key]["label"] = label
-
-    score = sum(item["score"] for item in rubric.values())
-    return {
-        "language": "uzbek",
-        "scoring_system": "uzbek_75",
-        "score": score,
-        "score_display": f"{score}/75",
-        "cefr": _estimate_uzbek_level_75(score),
-        "rubric": rubric,
-        "ielts": _empty_ielts(),
-        "grammar_errors": grammar_errors,
-        "spelling_errors": spelling_errors,
-        "suggestions": _build_uzbek_suggestions(word_count, connector_count, grammar_errors, spelling_errors, unique_ratio),
-        "improved_version": "",
-        "summary": "Esse 12 ta mezon bo'yicha 75 ballik tizimda baholandi.",
-        "provider": provider,
-    }
-
-
-def _demo_ielts_analysis(text: str, provider: str) -> dict:
-    words = WORD_PATTERN.findall(text)
-    sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+", text.strip()) if item.strip()]
-    word_count = len(words)
-    unique_ratio = (len(set(word.lower() for word in words)) / word_count) if word_count else 0
-    connector_count = _count_connectors(text)
-    paragraphs = [item for item in re.split(r"\n\s*\n", text.strip()) if item.strip()]
-    grammar_errors = _detect_grammar_issues(text)
-    spelling_errors = _detect_spelling_issues(text)
-    avg_sentence_len = word_count / len(sentences) if sentences else word_count
-
-    task = _normalize_band(4.0 + min(word_count, 280) / 95 + min(connector_count, 5) * 0.15)
-    if word_count < 120:
-        task -= 1.0
-    coherence = _normalize_band(4.0 + min(len(sentences), 9) * 0.28 + min(connector_count, 6) * 0.22)
-    if len(paragraphs) >= 2:
-        coherence += 0.5
-    lexical = _normalize_band(4.2 + unique_ratio * 2.4 + (0.4 if word_count >= 160 else 0))
-    grammar = _normalize_band(5.2 - len(grammar_errors) * 0.45 - len(spelling_errors) * 0.25)
-    if 10 <= avg_sentence_len <= 24 and len(sentences) >= 4:
-        grammar += 0.5
-
-    bands = {
-        "task_response": _clamp_band(task),
-        "coherence_cohesion": _clamp_band(coherence),
-        "lexical_resource": _clamp_band(lexical),
-        "grammar_range_accuracy": _clamp_band(grammar),
-    }
-    overall = _round_half(sum(bands.values()) / 4)
-    ielts = {
-        "task_response": {"band": bands["task_response"], "comment": _ielts_comment("task_response", bands["task_response"])},
-        "coherence_cohesion": {"band": bands["coherence_cohesion"], "comment": _ielts_comment("coherence_cohesion", bands["coherence_cohesion"])},
-        "lexical_resource": {"band": bands["lexical_resource"], "comment": _ielts_comment("lexical_resource", bands["lexical_resource"])},
-        "grammar_range_accuracy": {
-            "band": bands["grammar_range_accuracy"],
-            "comment": _ielts_comment("grammar_range_accuracy", bands["grammar_range_accuracy"]),
-        },
-        "overall_band": overall,
-    }
-    rubric = {
-        key: {
-            "score": item["band"],
-            "max_score": 9,
-            "label": label,
-            "comment": item["comment"],
-        }
-        for key, label in IELTS_CRITERIA
-        for item in [ielts[key]]
-    }
-
-    return {
-        "language": "english",
-        "scoring_system": "ielts",
-        "score": int(round(overall * 10)),
-        "score_display": f"{_format_band(overall)}/9 IELTS",
-        "cefr": f"IELTS {_format_band(overall)}",
-        "rubric": rubric,
-        "ielts": ielts,
-        "grammar_errors": grammar_errors,
-        "spelling_errors": spelling_errors,
-        "suggestions": _build_ielts_suggestions(word_count, connector_count, grammar_errors, spelling_errors, unique_ratio),
-        "improved_version": "",
-        "summary": "Essay IELTS Writing Task 2 mezonlari bo'yicha baholandi.",
-        "provider": provider,
-    }
-
-
-def _normalize_language(value: object, text: str) -> str:
-    language = str(value or "").strip().lower()
-    if language.startswith("uz"):
-        return "uzbek"
-    if language.startswith("en") or language.startswith("ing"):
-        return "english"
-    return _detect_language(text)
-
-
-def _detect_language(text: str) -> str:
-    lowered = text.lower()
-    uzbek_markers = [
-        "men", "biz", "siz", "ular", "uchun", "bilan", "chunki", "ammo", "lekin",
-        "shuning", "inson", "jamiyat", "ta'lim", "o'quv", "maktab", "kitob",
-        "bo'l", "o'z", "g'oya", "hayot", "kelajak", "vatanni", "fikr",
-    ]
-    english_markers = [
-        "the", "and", "because", "however", "education", "school", "people", "with",
-        "therefore", "students", "life", "society", "important", "advantage",
-    ]
-    uzbek_score = sum(1 for marker in uzbek_markers if marker in lowered)
-    english_score = sum(1 for marker in english_markers if re.search(rf"\b{re.escape(marker)}\b", lowered))
-    apostrophe_score = len(re.findall(r"\b[og]'|[a-z]+(ni|ga|da|dan|lar|ning)\b", lowered))
-    if uzbek_score + apostrophe_score > english_score:
-        return "uzbek"
-    return "english"
-
-
-def _detect_grammar_issues(text: str) -> list[dict]:
-    issues: list[dict] = []
-    if re.search(r"\bi\b", text):
-        issues.append(
-            {
-                "wrong": "i",
-                "corrected": "I",
-                "explanation": "Ingliz tilida 'I' doimo katta harf bilan yoziladi.",
-            }
-        )
-    if re.search(r"\bdont\b", text, re.IGNORECASE):
-        issues.append(
-            {
-                "wrong": "dont",
-                "corrected": "don't",
-                "explanation": "Apostrof tushib qolgan.",
-            }
-        )
-    if re.search(r"\bpeoples\b", text, re.IGNORECASE):
-        issues.append(
-            {
-                "wrong": "peoples",
-                "corrected": "people",
-                "explanation": "Oddiy umumiy ma'noda 'people' ishlatiladi.",
-            }
-        )
-    if text and text[0].islower():
-        issues.append(
-            {
-                "wrong": text[:1],
-                "corrected": text[:1].upper(),
-                "explanation": "Gap boshida katta harf kerak.",
-            }
-        )
-    return issues[:12]
-
-
-def _detect_spelling_issues(text: str) -> list[dict]:
-    common_typos = {
-        "becouse": "because",
-        "wich": "which",
-        "enviroment": "environment",
-        "teh": "the",
-        "freind": "friend",
-        "tugri": "to'g'ri",
-        "notugri": "noto'g'ri",
-        "buladi": "bo'ladi",
-        "bulgan": "bo'lgan",
-        "uzbek": "o'zbek",
-        "talim": "ta'lim",
-        "mano": "ma'no",
-        "masuliyat": "mas'uliyat",
-        "kop": "ko'p",
-        "oqiydi": "o'qiydi",
-        "organish": "o'rganish",
-        "orgatadi": "o'rgatadi",
-        "oz": "o'z",
-        "yani": "ya'ni",
-    }
-    findings = []
-    lowered = WORD_PATTERN.findall(text.lower())
-    for typo, corrected in common_typos.items():
-        if typo in lowered:
-            findings.append({"wrong": typo, "corrected": corrected})
-    return findings[:12]
-
-
-def _count_connectors(text: str) -> int:
-    connectors = {
-        "because", "however", "therefore", "moreover", "firstly", "secondly", "finally",
-        "although", "while", "also", "in addition", "for example", "for instance",
-        "as a result", "on the other hand", "in conclusion",
-        "chunki", "ammo", "lekin", "biroq", "shuning uchun", "bundan tashqari",
-        "birinchidan", "ikkinchidan", "xulosa qilib", "masalan", "natijada",
-    }
-    lowered = text.lower()
-    return sum(1 for connector in connectors if connector in lowered)
-
-
-def _criterion(max_score: int, score: int, comment: str) -> dict:
-    return {"score": _clamp_int(score, 0, max_score), "max_score": max_score, "comment": comment}
-
-
-def _range_score(value: int, low: int, high: int, min_score: int, max_score: int) -> int:
-    if value <= low:
-        return min_score
-    if value >= high:
-        return max_score
-    ratio = (value - low) / (high - low)
-    return round(min_score + ratio * (max_score - min_score))
-
-
-def _punctuation_score(text: str, sentences: list[str]) -> int:
-    if not text.strip():
-        return 0
-    score = 4
-    if sentences and any(sentence[-1] not in ".!?" for sentence in sentences):
-        score -= 1
-    if "," not in text and len(WORD_PATTERN.findall(text)) > 80:
-        score -= 1
-    return max(1, min(5, score))
-
-
-def _conclusion_score(text: str) -> int:
-    lowered = text.lower()
-    if any(marker in lowered for marker in ("xulosa", "yakun", "in conclusion", "to conclude")):
-        return 5
-    words = WORD_PATTERN.findall(text)
-    if len(words) >= 120 and text.strip().endswith((".", "!", "?")):
-        return 4
-    return 2 if words else 0
-
-
-def _uzbek_length_score(word_count: int) -> int:
-    if word_count == 0:
-        return 0
-    if word_count < 50:
-        return 2
-    if word_count < 90:
-        return 4
-    if word_count < 180:
-        return 6
-    return 7
-
-
-def _normalize_score(value: object, max_score: int) -> int:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        number = 0
-    if number > max_score:
-        number = number / 100 * max_score
-    return _clamp_int(round(number), 0, max_score)
-
-
-def _clamp_int(value: object, min_value: int, max_value: int) -> int:
+def _clamp_score(value: object) -> int:
     try:
         number = int(round(float(value)))
     except (TypeError, ValueError):
-        number = min_value
-    return max(min_value, min(max_value, number))
+        number = 0
+    return max(0, min(100, number))
 
 
-def _normalize_band(value: object) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        number = 0.0
-    return _clamp_band(_round_half(number))
+def _weighted_score(rubric: dict) -> int:
+    return round(
+        rubric["grammar"]["score"] * 0.3
+        + rubric["vocabulary"]["score"] * 0.25
+        + rubric["coherence"]["score"] * 0.25
+        + rubric["task_response"]["score"] * 0.2
+    )
 
 
-def _clamp_band(value: float) -> float:
-    return max(0.0, min(9.0, _round_half(value)))
-
-
-def _round_half(value: float) -> float:
-    return round(value * 2) / 2
-
-
-def _format_band(value: float) -> str:
-    return str(int(value)) if float(value).is_integer() else f"{value:.1f}"
-
-
-def _normalize_uzbek_level(value: object, score: int) -> str:
+def _normalize_level(value: object, score: int) -> str:
     level = str(value or "").strip()
-    if level and not re.fullmatch(r"[ABC][12]", level, re.IGNORECASE):
+    if level:
+        if re.fullmatch(r"[ABC][12]", level, re.IGNORECASE):
+            return level.upper()
         return level[:40]
-    return _estimate_uzbek_level_75(score)
-
-
-def _estimate_uzbek_level_75(score: int) -> str:
-    if score >= 68:
-        return "A'lo"
-    if score >= 60:
-        return "Juda yaxshi"
-    if score >= 48:
-        return "Yaxshi"
-    if score >= 34:
-        return "O'rta"
-    return "Boshlang'ich"
-
-
-def _empty_ielts() -> dict:
-    return {
-        "task_response": {"band": 0, "comment": ""},
-        "coherence_cohesion": {"band": 0, "comment": ""},
-        "lexical_resource": {"band": 0, "comment": ""},
-        "grammar_range_accuracy": {"band": 0, "comment": ""},
-        "overall_band": 0,
-    }
-
-
-def _uzbek_criterion_comment(key: str, score: int, max_score: int) -> str:
-    if score >= max_score * 0.8:
-        return "Mezon bo'yicha natija kuchli."
-    if score >= max_score * 0.55:
-        return "Mezon bo'yicha asos bor, lekin aniqlikni kuchaytirish kerak."
-    return "Bu mezon bo'yicha sezilarli ishlash kerak."
-
-
-def _ielts_comment(key: str, band: float) -> str:
-    label = {
-        "task_response": "Vazifaga javob",
-        "coherence_cohesion": "Izchillik va bog'lanish",
-        "lexical_resource": "Lug'at boyligi",
-        "grammar_range_accuracy": "Grammatika diapazoni va aniqligi",
-    }.get(key, "Mezon")
-    if band >= 7:
-        return f"{label} yaxshi darajada, lekin yanada aniqroq misollar bilan kuchaytirish mumkin."
-    if band >= 5.5:
-        return f"{label} tushunarli, ammo IELTS yuqori bandi uchun chuqurroq nazorat kerak."
-    return f"{label} bo'yicha asosiy kamchiliklar bor, sodda va aniq tuzilma bilan qayta ishlang."
+    return _estimate_cefr(score)
 
 
 def _sanitize_suggestions(value: object) -> list[str]:
@@ -671,46 +230,6 @@ def _sanitize_error_list(value: object, include_explanation: bool) -> list[dict]
     return errors
 
 
-def _build_uzbek_suggestions(
-    word_count: int,
-    connector_count: int,
-    grammar_errors: list[dict],
-    spelling_errors: list[dict],
-    unique_ratio: float,
-) -> list[str]:
-    suggestions: list[str] = []
-    if word_count < 100:
-        suggestions.append("Esseni kengaytirib, kamida 2 ta dalil va 1 ta aniq misol qo'shing.")
-    if connector_count < 2:
-        suggestions.append("Fikrlarni bog'lash uchun chunki, ammo, masalan, xulosa qilib kabi bog'lovchilardan foydalaning.")
-    if grammar_errors:
-        suggestions.append("Gap boshidagi katta harf, kesim va gap tuzilishini qayta tekshiring.")
-    if spelling_errors:
-        suggestions.append("Imlo, apostrof va o'zbekcha so'zlarning to'g'ri yozilishini tekshiring.")
-    if unique_ratio < 0.5 and word_count >= 60:
-        suggestions.append("Bir xil so'zlarni takrorlamasdan, sinonim va aniqroq iboralar ishlating.")
-    return suggestions[:5] or ["Kirish, asosiy qism va xulosani aniq ajrating."]
-
-
-def _build_ielts_suggestions(
-    word_count: int,
-    connector_count: int,
-    grammar_errors: list[dict],
-    spelling_errors: list[dict],
-    unique_ratio: float,
-) -> list[str]:
-    suggestions: list[str] = []
-    if word_count < 180:
-        suggestions.append("IELTS Task 2 uchun fikrni kamida 180-250 so'z atrofida kengaytiring.")
-    if connector_count < 3:
-        suggestions.append("Coherence uchun however, moreover, for example, as a result kabi linking words qo'shing.")
-    if unique_ratio < 0.55 and word_count >= 80:
-        suggestions.append("Lexical Resource uchun takrorlarni kamaytirib, topic-specific vocabulary ishlating.")
-    if grammar_errors or spelling_errors:
-        suggestions.append("Grammar va spelling xatolarini kamaytirish uchun yakunda matnni sekin qayta o'qing.")
-    return suggestions[:5] or ["Har bir body paragraphda topic sentence, explanation va example ishlating."]
-
-
 def _format_provider_error(response: requests.Response, provider: str) -> str:
     try:
         payload = response.json()
@@ -720,3 +239,320 @@ def _format_provider_error(response: requests.Response, provider: str) -> str:
     if isinstance(message, str) and message.strip():
         return f"{provider} xatosi: {message.strip()}"
     return f"{provider} xatosi: HTTP {response.status_code}"
+
+
+def _demo_analysis(text: str, provider: str) -> dict:
+    language = _detect_language(text)
+    words = WORD_PATTERN.findall(text)
+    sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+", text.strip()) if item.strip()]
+    word_count = len(words)
+    sentence_count = len(sentences)
+    unique_ratio = (len(set(word.lower() for word in words)) / word_count) if word_count else 0
+    avg_sentence_len = word_count / sentence_count if sentence_count else word_count
+    connector_count = _count_connectors(text)
+
+    grammar_errors = _detect_grammar_issues(text)
+    spelling_errors = _detect_spelling_issues(text)
+    grammar_score = _estimate_grammar_score(text, sentences, len(grammar_errors), len(spelling_errors))
+    vocabulary_score = _estimate_vocabulary_score(word_count, unique_ratio)
+    coherence_score = _estimate_coherence_score(sentence_count, connector_count, text)
+    task_score = _estimate_task_score(word_count)
+    score = round(
+        grammar_score * 0.3
+        + vocabulary_score * 0.25
+        + coherence_score * 0.25
+        + task_score * 0.2
+    )
+    cefr = _estimate_uzbek_level(score) if language == "uzbek" else _estimate_cefr(score)
+
+    rubric = {
+        "grammar": {
+            "score": grammar_score,
+            "comment": _grammar_comment(grammar_errors, grammar_score),
+        },
+        "vocabulary": {
+            "score": vocabulary_score,
+            "comment": _vocabulary_comment(unique_ratio, word_count),
+        },
+        "coherence": {
+            "score": coherence_score,
+            "comment": _coherence_comment(sentence_count, connector_count, text),
+        },
+        "task_response": {
+            "score": task_score,
+            "comment": _task_comment(word_count),
+        },
+    }
+
+    suggestions = _build_targeted_suggestions(
+        word_count=word_count,
+        grammar_errors=grammar_errors,
+        spelling_errors=spelling_errors,
+        unique_ratio=unique_ratio,
+        connector_count=connector_count,
+        avg_sentence_len=avg_sentence_len,
+    )
+
+    summary = (
+        "Matn umumiy ma'noni yetkazadi, lekin aniqlik va grammatik nazoratni "
+        "kuchaytirsa natija sezilarli yaxshilanadi."
+    )
+
+    return {
+        "score": score,
+        "cefr": cefr,
+        "rubric": rubric,
+        "grammar_errors": grammar_errors,
+        "spelling_errors": spelling_errors,
+        "suggestions": suggestions,
+        "improved_version": "",
+        "summary": summary,
+        "provider": provider,
+    }
+
+
+def _detect_language(text: str) -> str:
+    lowered = text.lower()
+    uzbek_markers = [
+        "men", "biz", "siz", "ular", "uchun", "bilan", "chunki", "ammo", "lekin",
+        "shuning", "inson", "jamiyat", "ta'lim", "o'quv", "maktab", "kitob",
+        "bo'l", "o'z", "g'oya", "hayot",
+    ]
+    english_markers = [
+        "the", "and", "because", "however", "education", "school", "people", "with",
+        "therefore", "students", "life",
+    ]
+    uzbek_score = sum(1 for marker in uzbek_markers if marker in lowered)
+    english_score = sum(1 for marker in english_markers if re.search(rf"\b{re.escape(marker)}\b", lowered))
+    return "uzbek" if uzbek_score > english_score else "english"
+
+
+def _detect_grammar_issues(text: str) -> list[dict]:
+    issues: list[dict] = []
+    if re.search(r"\bi\b", text):
+        issues.append(
+            {
+                "wrong": "i",
+                "corrected": "I",
+                "explanation": "Ingliz tilida 'I' doimo katta harf bilan yoziladi.",
+            }
+        )
+    if re.search(r"\bdont\b", text, re.IGNORECASE):
+        issues.append(
+            {
+                "wrong": "dont",
+                "corrected": "don't",
+                "explanation": "Apostrof tushib qolgan.",
+            }
+        )
+    if re.search(r"\bpeoples\b", text, re.IGNORECASE):
+        issues.append(
+            {
+                "wrong": "peoples",
+                "corrected": "people",
+                "explanation": "Oddiy umumiy ma'noda 'people' ishlatiladi.",
+            }
+        )
+    if text and text[0].islower():
+        issues.append(
+            {
+                "wrong": text[:1],
+                "corrected": text[:1].upper(),
+                "explanation": "Gap boshida katta harf kerak.",
+            }
+        )
+    return issues
+
+
+def _detect_spelling_issues(text: str) -> list[dict]:
+    common_typos = {
+        "becouse": "because",
+        "wich": "which",
+        "enviroment": "environment",
+        "teh": "the",
+        "freind": "friend",
+        "tugri": "to'g'ri",
+        "notugri": "noto'g'ri",
+        "buladi": "bo'ladi",
+        "bulgan": "bo'lgan",
+        "uzbek": "o'zbek",
+        "talim": "ta'lim",
+        "mano": "ma'no",
+        "masuliyat": "mas'uliyat",
+        "kop": "ko'p",
+        "oqiydi": "o'qiydi",
+        "organish": "o'rganish",
+        "orgatadi": "o'rgatadi",
+        "oz": "o'z",
+        "yani": "ya'ni",
+    }
+    findings = []
+    lowered = WORD_PATTERN.findall(text.lower())
+    for typo, corrected in common_typos.items():
+        if typo in lowered:
+            findings.append({"wrong": typo, "corrected": corrected})
+    return findings
+
+
+def _count_connectors(text: str) -> int:
+    connectors = {
+        "because", "however", "therefore", "moreover", "firstly", "secondly", "finally",
+        "although", "while", "also", "in addition", "for example", "for instance",
+        "as a result", "on the other hand", "in conclusion",
+        "chunki", "ammo", "lekin", "biroq", "shuning uchun", "bundan tashqari",
+        "birinchidan", "ikkinchidan", "xulosa qilib", "masalan", "natijada",
+    }
+    lowered = text.lower()
+    return sum(1 for connector in connectors if connector in lowered)
+
+
+def _estimate_grammar_score(
+    text: str,
+    sentences: list[str],
+    grammar_count: int,
+    spelling_count: int,
+) -> int:
+    if not text.strip():
+        return 0
+    score = 78
+    score -= grammar_count * 9
+    score -= spelling_count * 5
+    for sentence in sentences:
+        if sentence and sentence[0].islower():
+            score -= 4
+        if sentence and sentence[-1] not in ".!?":
+            score -= 3
+    if any(len(sentence.split()) > 32 for sentence in sentences):
+        score -= 6
+    return max(15, min(95, score))
+
+
+def _estimate_vocabulary_score(word_count: int, unique_ratio: float) -> int:
+    if word_count == 0:
+        return 0
+    score = 35 + int(unique_ratio * 45)
+    if word_count >= 80:
+        score += 8
+    if word_count >= 140:
+        score += 5
+    if word_count < 40:
+        score -= 12
+    return max(15, min(95, score))
+
+
+def _estimate_coherence_score(sentence_count: int, connector_count: int, text: str) -> int:
+    if sentence_count == 0:
+        return 0
+    score = 35 + min(sentence_count, 10) * 4 + min(connector_count, 6) * 5
+    if "\n" in text.strip():
+        score += 8
+    if sentence_count < 3:
+        score -= 12
+    return max(15, min(95, score))
+
+
+def _estimate_task_score(word_count: int) -> int:
+    if word_count == 0:
+        return 0
+    if word_count < 30:
+        return 25
+    if word_count < 60:
+        return 42
+    if word_count < 100:
+        return 58
+    if word_count < 160:
+        return 72
+    return 84
+
+
+def _estimate_cefr(score: int) -> str:
+    if score >= 92:
+        return "C1"
+    if score >= 88:
+        return "B2"
+    if score >= 74:
+        return "B1"
+    if score >= 60:
+        return "A2"
+    return "A1"
+
+
+def _estimate_uzbek_level(score: int) -> str:
+    if score >= 92:
+        return "A'lo"
+    if score >= 82:
+        return "Juda yaxshi"
+    if score >= 68:
+        return "Yaxshi"
+    if score >= 50:
+        return "O'rta"
+    return "Boshlang'ich"
+
+
+def _grammar_comment(grammar_errors: list[dict], score: int) -> str:
+    if not grammar_errors:
+        if score >= 80:
+            return "Grammatika nazorati yaxshi, gap tuzilishida jiddiy xato ko'rinmadi."
+        return "Asosiy grammatika tushunarli, lekin gap tuzilishini yanada aniqroq qilish kerak."
+    return "Bir nechta ko'zga tashlanadigan grammatika xatolari bor."
+
+
+def _vocabulary_comment(unique_ratio: float, word_count: int) -> str:
+    if word_count < 40:
+        return "Lug'at zaxirasi baholash uchun biroz qisqa matn."
+    if unique_ratio > 0.7:
+        return "Lug'at xilma-xilligi yaxshi ko'rinadi."
+    return "So'z tanlovini boyitish orqali kuchliroq taassurot qoldirishingiz mumkin."
+
+
+def _coherence_comment(sentence_count: int, connector_count: int, text: str) -> str:
+    if sentence_count < 3:
+        return "Fikrlar orasidagi ko'prikni kuchaytirish uchun yana 1-2 gap kerak."
+    if connector_count < 2:
+        return "Bog'lovchi so'zlar kam, fikrlar orasidagi aloqani kuchaytirish kerak."
+    if "\n" in text:
+        return "Paragraflar mavjud, bu izchillikni yaxshilaydi."
+    return "Bog'lovchi so'zlar va paragraf ajratish bilan izchillik oshadi."
+
+
+def _task_comment(word_count: int) -> str:
+    if word_count < 60:
+        return "Vazifa mavzusini ochish uchun matnni kengaytirish kerak."
+    if word_count < 120:
+        return "Asosiy javob bor, lekin misollar bilan boyitsa yanada kuchli bo'ladi."
+    return "Vazifaga javob berilgan va g'oyalar yetarli darajada ochilgan."
+
+
+def _build_targeted_suggestions(
+    word_count: int,
+    grammar_errors: list[dict],
+    spelling_errors: list[dict],
+    unique_ratio: float,
+    connector_count: int,
+    avg_sentence_len: float,
+) -> list[str]:
+    suggestions: list[str] = []
+    if word_count < 80:
+        suggestions.append("Esseni kamida 100-150 so'zgacha kengaytirib, asosiy fikrga 1-2 ta misol qo'shing.")
+    if grammar_errors:
+        suggestions.append("Grammatik xatolarni, ayniqsa bosh harf, apostrof va ko'plik shakllarini qayta tekshiring.")
+    if spelling_errors:
+        suggestions.append("Imlo xatolarini kamaytirish uchun yozib bo'lgach matnni sekin ovoz chiqarib o'qing.")
+    if unique_ratio < 0.55 and word_count >= 50:
+        suggestions.append("Bir xil so'zlarni takrorlamasdan, sinonim va aniqroq sifatlar ishlating.")
+    if connector_count < 2:
+        suggestions.append("Fikrlarni bog'lash uchun chunki, ammo, masalan, xulosa qilib kabi bog'lovchilar qo'shing.")
+    if avg_sentence_len > 28:
+        suggestions.append("Juda uzun gaplarni 2 ta qisqaroq gapga ajrating.")
+    return suggestions[:5] or ["Mavzuni aniqroq ochish uchun kirish, asosiy fikr va xulosa qismlarini ajrating."]
+
+
+def _build_improved_version(text: str) -> str:
+    stripped = " ".join(text.split())
+    if not stripped:
+        return "Please add essay text so the system can generate an improved version."
+    if stripped[0].islower():
+        stripped = stripped[0].upper() + stripped[1:]
+    if stripped and stripped[-1] not in ".!?":
+        stripped += "."
+    return stripped
