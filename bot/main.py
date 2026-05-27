@@ -1,5 +1,7 @@
 import asyncio
+import io
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -14,12 +16,24 @@ from aiogram.filters.command import CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, Update, WebAppInfo
 
 from app.config import settings
-from app.storage import claim_referral, confirm_payment, create_or_get_user, get_user_by_telegram_id
+from app.routes.api import process_submission
+from app.storage import (
+    claim_referral,
+    confirm_payment,
+    consume_user_limit,
+    create_or_get_user,
+    create_submission,
+    get_submission,
+    get_user_by_telegram_id,
+    refund_user_limit,
+    save_upload_file,
+)
 
 
 dp = Dispatcher()
 BOT_SETTINGS_PATH = PROJECT_ROOT / "data" / "bot_settings.json"
 PENDING_PAYMENTS: dict[str, dict] = {}
+MIN_DIRECT_ESSAY_WORDS = 20
 
 PAYMENT_PACKAGES = {
     "buy:5": (5, "15 000 so'm"),
@@ -142,6 +156,10 @@ def _format_user_limits(user: dict) -> str:
         f"Jami limit: {user['available_limit']}\n"
         f"Referral kod: {user['referral_code']}"
     )
+
+
+def _word_count(text: str) -> int:
+    return len(re.findall("[A-Za-z\\u00c0-\\u017f\\u0400-\\u04ff\\u02bb\\u2019']+", text))
 
 
 def _payment_details_text(user_id: str, limits: int, price: str) -> str:
@@ -278,6 +296,168 @@ async def _ensure_user(message: Message) -> dict | None:
     return create_or_get_user(telegram_id=telegram_id, full_name=full_name, username=username)
 
 
+async def _process_direct_submission(
+    message: Message,
+    *,
+    text: str = "",
+    image_content: bytes | None = None,
+    image_filename: str = "essay.jpg",
+) -> None:
+    user = await _ensure_user(message)
+    if user is None:
+        return
+
+    consumed_limit_type = consume_user_limit(user["id"])
+    if not consumed_limit_type:
+        await message.answer("Limit tugagan. /pay orqali limit sotib oling yoki referral orqali bonus oling.")
+        return
+
+    image_paths: list[str] = []
+    source_type = "text"
+    status_message = await message.answer("Insho qabul qilindi. Tekshiruv boshlandi...")
+    try:
+        if image_content is not None:
+            image_paths.append(save_upload_file(image_filename, image_content))
+            source_type = "image"
+
+        submission = create_submission(
+            user_id=user["id"],
+            source_type=source_type,
+            consumed_limit_type=consumed_limit_type,
+            input_text=text.strip() or None,
+            image_paths=image_paths,
+        )
+    except Exception:
+        refund_user_limit(user["id"], consumed_limit_type)
+        raise
+
+    await asyncio.to_thread(process_submission, submission["id"])
+    completed = get_submission(submission["id"])
+    if completed is None:
+        await status_message.edit_text("Tekshiruv yakunida natija topilmadi. Iltimos, qayta urinib ko'ring.")
+        return
+    if completed["status"] == "failed":
+        error_message = completed.get("error_message") or "noma'lum xato"
+        await status_message.edit_text(f"Tekshiruvda xatolik: {error_message}")
+        return
+
+    await status_message.edit_text("Tekshiruv tayyor.")
+    await _send_long_message(message, _format_submission_result(completed), reply_markup=_main_keyboard())
+
+
+async def _download_image_from_message(bot: Bot, message: Message) -> tuple[bytes, str] | None:
+    if message.photo:
+        photo = message.photo[-1]
+        buffer = io.BytesIO()
+        await bot.download(photo.file_id, destination=buffer)
+        return buffer.getvalue(), "telegram-photo.jpg"
+
+    document = message.document
+    if document is None:
+        return None
+    mime_type = document.mime_type or ""
+    if not mime_type.startswith("image/"):
+        return None
+    buffer = io.BytesIO()
+    await bot.download(document.file_id, destination=buffer)
+    filename = Path(document.file_name or "telegram-document.jpg").name
+    return buffer.getvalue(), filename
+
+
+async def _send_long_message(message: Message, text: str, **kwargs) -> None:
+    chunks = [text[index : index + 3900] for index in range(0, len(text), 3900)] or [text]
+    for index, chunk in enumerate(chunks):
+        await message.answer(chunk, **(kwargs if index == len(chunks) - 1 else {}))
+
+
+def _format_submission_result(submission: dict) -> str:
+    analysis = submission.get("analysis") or {}
+    language = analysis.get("language") or "-"
+    scoring_system = analysis.get("scoring_system") or "-"
+    score_display = analysis.get("score_display") or str(submission.get("score") or analysis.get("score") or "-")
+    level = submission.get("cefr") or analysis.get("cefr") or "-"
+
+    lines = [
+        "Insho natijasi:",
+        "",
+        f"Til: {_language_label(language)}",
+        f"Tizim: {_scoring_label(scoring_system)}",
+        f"Natija: {score_display}",
+        f"Daraja: {level}",
+    ]
+
+    rubric = analysis.get("rubric") if isinstance(analysis.get("rubric"), dict) else {}
+    if rubric:
+        lines.extend(["", "Mezonlar:"])
+        for index, (key, item) in enumerate(rubric.items(), start=1):
+            if not isinstance(item, dict):
+                continue
+            label = item.get("label") or _rubric_label(key)
+            score = item.get("score", item.get("band", "-"))
+            max_score = f"/{item['max_score']}" if item.get("max_score") else ""
+            lines.append(f"{index}. {label}: {score}{max_score}")
+
+    suggestions = analysis.get("suggestions") if isinstance(analysis.get("suggestions"), list) else []
+    if suggestions:
+        lines.extend(["", "Tavsiyalar:"])
+        for item in suggestions[:5]:
+            lines.append(f"- {str(item).strip()}")
+
+    errors = analysis.get("grammar_errors") if isinstance(analysis.get("grammar_errors"), list) else []
+    spelling = analysis.get("spelling_errors") if isinstance(analysis.get("spelling_errors"), list) else []
+    if errors or spelling:
+        lines.extend(["", "Xatolar:"])
+        for item in errors[:4]:
+            if isinstance(item, dict):
+                lines.append(f"- {item.get('wrong', '')} -> {item.get('corrected', '')}")
+        for item in spelling[:4]:
+            if isinstance(item, dict):
+                lines.append(f"- {item.get('wrong', '')} -> {item.get('corrected', '')}")
+
+    summary = str(analysis.get("summary") or "").strip()
+    if summary:
+        lines.extend(["", f"Qisqa xulosa: {summary}"])
+    return "\n".join(lines)
+
+
+def _language_label(language: str) -> str:
+    if language == "uzbek":
+        return "O'zbek"
+    if language == "english":
+        return "English"
+    return language
+
+
+def _scoring_label(scoring_system: str) -> str:
+    if scoring_system == "uzbek_75":
+        return "75 ball / 12 mezon"
+    if scoring_system == "ielts":
+        return "IELTS Writing"
+    return scoring_system
+
+
+def _rubric_label(key: str) -> str:
+    labels = {
+        "topic_coverage": "Mavzuni yoritish",
+        "thesis_position": "Tezis va pozitsiya",
+        "arguments_examples": "Dalil va misollar",
+        "logical_coherence": "Mantiqiy izchillik",
+        "structure": "Kompozitsiya",
+        "style_register": "Uslub va registr",
+        "vocabulary": "Lug'at boyligi",
+        "grammar": "Grammatika",
+        "spelling": "Imlo",
+        "punctuation": "Punktuatsiya",
+        "conclusion": "Xulosa",
+        "length_requirements": "Hajm va talabga moslik",
+        "task_response": "Task Response",
+        "coherence_cohesion": "Coherence and Cohesion",
+        "lexical_resource": "Lexical Resource",
+        "grammar_range_accuracy": "Grammatical Range and Accuracy",
+    }
+    return labels.get(key, key.replace("_", " ").title())
+
+
 @dp.message(CommandStart())
 async def start(message: Message, command: CommandObject, bot: Bot) -> None:
     user = await _ensure_user(message)
@@ -301,7 +481,8 @@ async def start(message: Message, command: CommandObject, bot: Bot) -> None:
         return
 
     text = (
-        "Salom. Bot orqali insho tekshirishingiz, limit sotib olishingiz va referral orqali bonus olishingiz mumkin."
+        "Salom. Menga o'zbek yoki ingliz tilidagi inshoni matn yoki rasm qilib yuboring.\n"
+        "O'zbekcha insho 75 ballik 12 mezon bo'yicha, inglizcha insho IELTS tizimida baholanadi.\n"
         f"{referral_note}\n\n"
         f"Sizda hozir {user['available_limit']} ta limit bor."
     )
@@ -410,6 +591,9 @@ async def help_command(message: Message) -> None:
         "/profile - limit va referral kod\n"
         "/referral - referral link\n"
         "/pay - limit sotib olish\n\n"
+        "Inshoni tekshirish uchun matn yoki rasm yuboring.\n"
+        "O'zbekcha: 75 ball / 12 mezon.\n"
+        "Inglizcha: IELTS Writing band.\n\n"
         "/myid - Telegram ID ni ko'rish\n\n"
         "Admin uchun:\n"
         "/setadminme ADMIN_SECRET - o'zingizni admin qilish\n"
@@ -537,6 +721,12 @@ async def receipt_message(message: Message, bot: Bot) -> None:
     user_id = str(message.from_user.id)
     pending = PENDING_PAYMENTS.get(user_id)
     if pending is None:
+        image = await _download_image_from_message(bot, message)
+        if image is None:
+            await message.answer("Iltimos, insho matnini yoki rasm formatidagi inshoni yuboring.")
+            return
+        image_content, image_filename = image
+        await _process_direct_submission(message, image_content=image_content, image_filename=image_filename)
         return
 
     sent_count = await _send_receipt_to_admins(bot, message, pending)
@@ -547,6 +737,19 @@ async def receipt_message(message: Message, bot: Bot) -> None:
             "Chek qabul qilindi, lekin admin topilmadi.\n"
             "Admin botga /setadminme yozishi yoki .env ichida ADMIN_TELEGRAM_IDS to'ldirilishi kerak."
         )
+
+
+@dp.message(F.text)
+async def direct_text_essay_message(message: Message) -> None:
+    text = (message.text or "").strip()
+    if not text or text.startswith("/"):
+        return
+    if _word_count(text) < MIN_DIRECT_ESSAY_WORDS:
+        await message.answer(
+            "Insho biroz qisqa ko'rinyapti. Tekshirish uchun kamida 20 ta so'zdan iborat matn yuboring."
+        )
+        return
+    await _process_direct_submission(message, text=text)
 
 
 @dp.callback_query(F.data.startswith("confirm_payment:"))
@@ -622,6 +825,8 @@ async def help_callback(callback: CallbackQuery) -> None:
             "/profile - limitlaringiz\n"
             "/referral - referral link\n"
             "/pay - limit sotib olish\n\n"
+            "Inshoni matn yoki rasm qilib yuboring.\n"
+            "O'zbekcha insho 75 ball / 12 mezon, inglizcha insho IELTS tizimida baholanadi.\n\n"
             "/myid - Telegram ID ni ko'rish\n\n"
             "To'lov tasdiqlangach admin limit qo'shib beradi.",
             reply_markup=_main_keyboard(),

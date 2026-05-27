@@ -5,10 +5,38 @@ Essay Pilot - Telegram ichidan ishlaydigan, insho tekshiruvchi MVP.
 Loyiha foydalanuvchi uchun qulay oqim bilan qurilgan:
 
 - Matn yozish yoki rasm yuklash
+- Telegram botga to'g'ridan-to'g'ri matn yoki rasm yuborib tekshirtirish
 - Limitni avtomatik tekshirish
 - Tekshirilayotgan holatni ko'rsatish
 - Natijada ball, daraja, xatolar va tavsiyalarni chiqarish
 - History bo'limida avvalgi yuborilgan insholarni ko'rish
+
+## Baholash tizimi
+
+- O'zbekcha insholar: 75 ballik tizim, 12 ta mezon.
+- Inglizcha insholar: IELTS Writing Task 2 mezonlari bo'yicha 0-9 band.
+
+O'zbekcha 12 mezon:
+
+1. Mavzuni yoritish
+2. Tezis va pozitsiya
+3. Dalil va misollar
+4. Mantiqiy izchillik
+5. Kompozitsiya
+6. Uslub va registr
+7. Lug'at boyligi
+8. Grammatika
+9. Imlo
+10. Punktuatsiya
+11. Xulosa
+12. Hajm va talabga moslik
+
+Inglizcha IELTS mezonlari:
+
+1. Task Response
+2. Coherence and Cohesion
+3. Lexical Resource
+4. Grammatical Range and Accuracy
 
 ## OCR strategiyasi
 

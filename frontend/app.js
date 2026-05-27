@@ -204,8 +204,8 @@ function resetWorkspace() {
   elements.imagePreview.classList.add("hidden");
   elements.emptyState.classList.remove("hidden");
   elements.resultContent.classList.add("hidden");
-  elements.scoreValue.textContent = "0";
-  elements.cefrValue.textContent = "A1";
+  elements.scoreValue.textContent = "-";
+  elements.cefrValue.textContent = "-";
   elements.providerValue.textContent = "demo";
   elements.rubricList.innerHTML = "";
   elements.grammarErrors.innerHTML = "";
@@ -307,7 +307,7 @@ function renderSubmission(submission) {
   }
 
   const analysis = submission.analysis || {};
-  elements.scoreValue.textContent = submission.score ?? analysis.score ?? "-";
+  elements.scoreValue.textContent = formatScoreValue(submission, analysis);
   elements.cefrValue.textContent = submission.cefr ?? analysis.cefr ?? "-";
   elements.providerValue.textContent = analysis.provider || "demo";
   const improvedVersion = (analysis.improved_version || "").trim();
@@ -331,12 +331,18 @@ function renderRubric(rubric) {
   const items = Object.entries(rubric);
   elements.rubricList.innerHTML = items
     .map(
-      ([key, value]) => `
+      ([key, value]) => {
+        const label = value.label || formatKey(key);
+        const score = value.score ?? value.band ?? "-";
+        const maxScore = value.max_score ? `/${value.max_score}` : "";
+        const comment = value.comment || "";
+        return `
         <div class="stack-item">
-          <strong>${formatKey(key)}: ${value.score}</strong>
-          <small>${value.comment}</small>
+          <strong>${escapeHtml(label)}: ${escapeHtml(score)}${escapeHtml(maxScore)}</strong>
+          <small>${escapeHtml(comment)}</small>
         </div>
-      `,
+      `;
+      },
     )
     .join("");
 }
@@ -351,8 +357,8 @@ function renderGrammarErrors(errors) {
     .map(
       (item) => `
         <div class="stack-item">
-          <strong>${item.wrong} -> ${item.corrected}</strong>
-          <small>${item.explanation}</small>
+          <strong>${escapeHtml(item.wrong)} -> ${escapeHtml(item.corrected)}</strong>
+          <small>${escapeHtml(item.explanation || "")}</small>
         </div>
       `,
     )
@@ -368,7 +374,7 @@ function renderSpellingErrors(errors) {
     .map(
       (item) => `
         <div class="stack-item">
-          <strong>Imlo: ${item.wrong} -> ${item.corrected}</strong>
+          <strong>Imlo: ${escapeHtml(item.wrong)} -> ${escapeHtml(item.corrected)}</strong>
         </div>
       `,
     )
@@ -377,7 +383,7 @@ function renderSpellingErrors(errors) {
 
 function renderSuggestions(suggestions) {
   elements.suggestionList.innerHTML = suggestions
-    .map((item) => `<div class="stack-item"><strong>${item}</strong></div>`)
+    .map((item) => `<div class="stack-item"><strong>${escapeHtml(item)}</strong></div>`)
     .join("");
 }
 
@@ -393,8 +399,8 @@ function renderHistory(history) {
       (item) => `
         <button class="history-item" type="button" data-id="${item.id}">
           <strong>#${item.id} | ${item.source_type.toUpperCase()}</strong>
-          <p>Status: ${mapStatus(item.status)}</p>
-          <p>Ball: ${item.score ?? "-"} | Daraja: ${item.cefr ?? "-"}</p>
+          <p>Status: ${escapeHtml(mapStatus(item.status))}</p>
+          <p>Ball: ${escapeHtml(item.score ?? "-")} | Daraja: ${escapeHtml(item.cefr ?? "-")}</p>
         </button>
       `,
     )
@@ -446,6 +452,19 @@ function formatKey(key) {
     vocabulary: "Lug'at",
     coherence: "Izchillik",
     task_response: "Mavzuga javob",
+    topic_coverage: "Mavzuni yoritish",
+    thesis_position: "Tezis va pozitsiya",
+    arguments_examples: "Dalil va misollar",
+    logical_coherence: "Mantiqiy izchillik",
+    structure: "Kompozitsiya",
+    style_register: "Uslub va registr",
+    spelling: "Imlo",
+    punctuation: "Punktuatsiya",
+    conclusion: "Xulosa",
+    length_requirements: "Hajm va talabga moslik",
+    coherence_cohesion: "Coherence and Cohesion",
+    lexical_resource: "Lexical Resource",
+    grammar_range_accuracy: "Grammatical Range and Accuracy",
   };
   if (labels[key]) {
     return labels[key];
@@ -454,6 +473,25 @@ function formatKey(key) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatScoreValue(submission, analysis) {
+  if (analysis.score_display) {
+    return analysis.score_display;
+  }
+  if (analysis.scoring_system === "ielts" && typeof analysis.score === "number") {
+    return `${analysis.score / 10}/9 IELTS`;
+  }
+  return submission.score ?? analysis.score ?? "-";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 async function api(path, options = {}) {
