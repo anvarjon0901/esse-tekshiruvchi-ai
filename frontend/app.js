@@ -15,6 +15,7 @@ const elements = {
   textFieldGroup: document.getElementById("textFieldGroup"),
   imageFieldGroup: document.getElementById("imageFieldGroup"),
   submitBtn: document.getElementById("submitBtn"),
+  clearBtn: document.getElementById("clearBtn"),
   resultStatus: document.getElementById("resultStatus"),
   emptyState: document.getElementById("emptyState"),
   resultContent: document.getElementById("resultContent"),
@@ -51,6 +52,7 @@ document.querySelectorAll(".mode-btn").forEach((button) => {
 
 elements.essayImage.addEventListener("change", handleImagePreview);
 elements.essayForm.addEventListener("submit", handleSubmit);
+elements.clearBtn.addEventListener("click", resetWorkspace);
 elements.referralBtn.addEventListener("click", handleReferralClaim);
 elements.refreshHistoryBtn.addEventListener("click", () => {
   if (state.user?.telegram_id) {
@@ -157,9 +159,19 @@ async function handleSubmit(event) {
   formData.append("username", state.user.username || "");
 
   if (state.mode === "text") {
-    formData.append("text", elements.essayText.value.trim());
+    const essayText = elements.essayText.value.trim();
+    if (!essayText) {
+      updateStatus("Essay matnini kiriting.", "warning");
+      return;
+    }
+    formData.append("text", essayText);
   } else {
-    Array.from(elements.essayImage.files || []).forEach((file) => {
+    const files = Array.from(elements.essayImage.files || []);
+    if (!files.length) {
+      updateStatus("Kamida bitta rasm tanlang.", "warning");
+      return;
+    }
+    files.forEach((file) => {
       formData.append("images", file);
     });
   }
@@ -180,6 +192,29 @@ async function handleSubmit(event) {
   } finally {
     elements.submitBtn.disabled = false;
   }
+}
+
+function resetWorkspace() {
+  stopPolling();
+  state.currentSubmissionId = null;
+  elements.essayText.value = "";
+  elements.essayImage.value = "";
+  elements.imagePreview.innerHTML = "";
+  elements.imagePreview.classList.add("hidden");
+  elements.emptyState.classList.remove("hidden");
+  elements.resultContent.classList.add("hidden");
+  elements.scoreValue.textContent = "0";
+  elements.cefrValue.textContent = "A1";
+  elements.providerValue.textContent = "demo";
+  elements.rubricList.innerHTML = "";
+  elements.grammarErrors.innerHTML = "";
+  elements.spellingErrors.innerHTML = "";
+  elements.suggestionList.innerHTML = "";
+  elements.improvedVersion.textContent = "";
+  elements.improvedCard.classList.add("hidden");
+  elements.ocrText.textContent = "";
+  elements.ocrCard.classList.add("hidden");
+  updateStatus("Kutilmoqda", "neutral");
 }
 
 function startPolling(submissionId) {

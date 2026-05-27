@@ -28,5 +28,13 @@ services:
         value: webhook
       - key: TELEGRAM_WEBHOOK_SECRET
         generateValue: true
+      - key: ADMIN_TELEGRAM_IDS
+        sync: false
+      - key: PAYMENT_CARD
+        sync: false
+      - key: PAYMENT_CARD_HOLDER
+        sync: false
+      - key: PAYMENT_ADMIN_USERNAME
+        sync: false
       - key: ADMIN_SECRET
         generateValue: true

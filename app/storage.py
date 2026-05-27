@@ -29,8 +29,23 @@ def _row_to_submission(row: sqlite3.Row | None) -> dict | None:
         return None
     payload = dict(row)
     payload["analysis"] = json.loads(payload["analysis_json"]) if payload["analysis_json"] else None
+    payload["image_paths"] = _decode_image_paths(payload.get("image_path"))
     payload.pop("analysis_json", None)
     return payload
+
+
+def _decode_image_paths(image_path: str | None) -> list[str]:
+    if not image_path:
+        return []
+    try:
+        payload = json.loads(image_path)
+    except json.JSONDecodeError:
+        return [image_path]
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, str) and item]
+    if isinstance(payload, str) and payload:
+        return [payload]
+    return []
 
 
 def get_user_by_telegram_id(telegram_id: str) -> dict | None:
@@ -153,8 +168,10 @@ def create_submission(
     consumed_limit_type: str | None,
     input_text: str | None = None,
     image_path: str | None = None,
+    image_paths: list[str] | None = None,
 ) -> dict:
     created_at = now_iso()
+    stored_image_path = json.dumps(image_paths, ensure_ascii=True) if image_paths else image_path
     connection = get_connection()
     with connection:
         cursor = connection.execute(
@@ -171,7 +188,7 @@ def create_submission(
             )
             VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)
             """,
-            (user_id, source_type, consumed_limit_type, input_text, image_path, created_at, created_at),
+            (user_id, source_type, consumed_limit_type, input_text, stored_image_path, created_at, created_at),
         )
         submission_id = cursor.lastrowid
         connection.execute(

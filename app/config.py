@@ -25,8 +25,35 @@ class Settings:
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_ocr_model: str = os.getenv("GEMINI_OCR_MODEL", "gemini-2.5-flash").strip()
+    gemini_analysis_model: str = os.getenv("GEMINI_ANALYSIS_MODEL", "gemini-2.5-flash").strip()
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    run_bot_with_web: bool = os.getenv("RUN_BOT_WITH_WEB", "false").strip().lower() in {"1", "true", "yes"}
+    telegram_bot_mode: str = os.getenv("TELEGRAM_BOT_MODE", "polling").strip().lower()
+    telegram_webhook_secret: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+    admin_telegram_ids: str = os.getenv("ADMIN_TELEGRAM_IDS", "").strip()
+    payment_card: str = (
+        os.getenv("PAYMENT_CARD")
+        or os.getenv("CARD_NUMBER")
+        or os.getenv("CARD")
+        or os.getenv("CLICK_CARD")
+        or ""
+    ).strip()
+    payment_card_holder: str = (
+        os.getenv("PAYMENT_CARD_HOLDER")
+        or os.getenv("CARD_HOLDER")
+        or os.getenv("CARD_OWNER")
+        or ""
+    ).strip()
+    payment_admin_username: str = (
+        os.getenv("PAYMENT_ADMIN_USERNAME")
+        or os.getenv("ADMIN_USERNAME")
+        or os.getenv("PAYMENT_USERNAME")
+        or ""
+    ).strip()
     admin_secret: str = os.getenv("ADMIN_SECRET", "change-me").strip()
+
+    def admin_telegram_id_set(self) -> set[str]:
+        return {item.strip() for item in self.admin_telegram_ids.split(",") if item.strip()}
 
     def ensure_paths(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)

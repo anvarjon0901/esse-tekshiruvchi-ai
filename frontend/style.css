@@ -300,6 +300,12 @@ textarea {
   font-weight: 600;
 }
 
+.form-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
 .primary-btn {
   width: 100%;
   background: linear-gradient(135deg, #eb5e28 0%, #f08c3a 100%);
@@ -312,6 +318,11 @@ textarea {
   margin-top: 12px;
   background: rgba(15, 23, 32, 0.08);
   color: var(--ink);
+}
+
+.form-actions .secondary-btn {
+  margin-top: 0;
+  min-width: 120px;
 }
 
 .ghost-btn {
@@ -522,7 +533,8 @@ textarea {
 
   .score-grid,
   .analysis-columns,
-  .process-strip {
+  .process-strip,
+  .form-actions {
     grid-template-columns: 1fr;
   }
 

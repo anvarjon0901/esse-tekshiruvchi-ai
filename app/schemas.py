@@ -52,7 +52,7 @@ class SubmissionResponse(BaseModel):
     ocr_text: str | None = None
     cleaned_text: str | None = None
     image_path: str | None = None
-    image_paths: list[str] = []
+    image_paths: list[str] = Field(default_factory=list)
     score: int | None = None
     cefr: str | None = None
     analysis: dict[str, Any] | None = None
