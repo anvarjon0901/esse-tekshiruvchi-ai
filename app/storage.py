@@ -219,6 +219,24 @@ def update_submission_status(submission_id: int, status: str, error_message: str
     connection.close()
 
 
+def save_submission_ocr_review(submission_id: int, ocr_text: str, cleaned_text: str) -> None:
+    connection = get_connection()
+    with connection:
+        connection.execute(
+            """
+            UPDATE submissions
+            SET status = 'reviewing',
+                ocr_text = ?,
+                cleaned_text = ?,
+                error_message = NULL,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (ocr_text, cleaned_text, now_iso(), submission_id),
+        )
+    connection.close()
+
+
 def complete_submission(
     submission_id: int,
     ocr_text: str | None,

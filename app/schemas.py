@@ -33,6 +33,10 @@ class PaymentConfirmRequest(BaseModel):
     note: str = ""
 
 
+class SubmissionAnalyzeRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
 class SubmissionSummary(BaseModel):
     id: int
     source_type: str

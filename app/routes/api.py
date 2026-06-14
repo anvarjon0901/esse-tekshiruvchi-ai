@@ -6,6 +6,7 @@ from app.config import settings
 from app.schemas import (
     PaymentConfirmRequest,
     ReferralClaimRequest,
+    SubmissionAnalyzeRequest,
     SubmissionResponse,
     SubmissionSummary,
     UserBootstrapRequest,
@@ -24,6 +25,7 @@ from app.storage import (
     get_user_by_telegram_id,
     list_submissions_for_telegram_id,
     refund_user_limit,
+    save_submission_ocr_review,
     save_upload_file,
     update_submission_status,
 )
@@ -131,7 +133,7 @@ async def submit_essay(
     except Exception:
         refund_user_limit(user["id"], consumed_limit_type)
         raise
-    background_tasks.add_task(process_submission, submission["id"])
+    background_tasks.add_task(process_submission, submission["id"], source_type == "image")
     return submission
 
 
@@ -153,6 +155,38 @@ def get_submission_by_id(
     return submission
 
 
+@router.post("/submissions/{submission_id}/analyze", response_model=SubmissionResponse)
+def analyze_reviewed_submission_by_id(
+    submission_id: int,
+    payload: SubmissionAnalyzeRequest,
+    background_tasks: BackgroundTasks,
+    telegram_id: str | None = None,
+    x_telegram_init_data: str | None = Header(default=None),
+) -> dict:
+    submission = get_submission(submission_id)
+    if submission is None:
+        raise HTTPException(status_code=404, detail="Submission topilmadi.")
+    authorized_telegram_id = authorize_telegram_id(x_telegram_init_data, telegram_id)
+    user = get_user_by_telegram_id(authorized_telegram_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Foydalanuvchi topilmadi.")
+    if submission["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Bu submission sizga tegishli emas.")
+    if submission["status"] != "reviewing":
+        raise HTTPException(status_code=400, detail="Bu submission OCR ko'rib chiqish bosqichida emas.")
+
+    reviewed_text = clean_ocr_text(payload.text)
+    if not reviewed_text.strip():
+        raise HTTPException(status_code=400, detail="Tekshirish uchun matn bo'sh bo'lmasligi kerak.")
+
+    update_submission_status(submission_id, "processing")
+    background_tasks.add_task(analyze_reviewed_submission, submission_id, reviewed_text)
+    updated = get_submission(submission_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Submission topilmadi.")
+    return updated
+
+
 @router.get("/submissions", response_model=list[SubmissionSummary])
 def list_submissions(
     telegram_id: str,
@@ -163,31 +197,21 @@ def list_submissions(
     return list_submissions_for_telegram_id(telegram_id=authorized_telegram_id, limit=limit)
 
 
-def process_submission(submission_id: int) -> None:
+def process_submission(submission_id: int, require_ocr_review: bool = False) -> None:
     submission = get_submission(submission_id)
     if submission is None:
         return
 
     try:
-        update_submission_status(submission_id, "processing")
-
-        ocr_text = None
         if submission["source_type"] == "image":
-            image_paths = submission.get("image_paths") or []
-            if not image_paths and submission.get("image_path"):
-                image_paths = [submission["image_path"]]
-            if not image_paths:
-                raise ValueError("Rasm fayli topilmadi.")
-            ocr_parts: list[str] = []
-            for index, image_path in enumerate(image_paths, start=1):
-                if not Path(image_path).exists():
-                    raise ValueError(f"{index}-rasm fayli topilmadi.")
-                ocr_result = extract_text_from_image(image_path)
-                if ocr_result.text.strip():
-                    ocr_parts.append(f"{index}-rasm:\n{ocr_result.text.strip()}")
-            ocr_text = "\n\n".join(ocr_parts)
-            cleaned_text = clean_ocr_text(ocr_text)
+            update_submission_status(submission_id, "ocr_processing")
+            ocr_text, cleaned_text = _extract_submission_text(submission)
+            if require_ocr_review:
+                save_submission_ocr_review(submission_id, ocr_text or cleaned_text, cleaned_text)
+                return
         else:
+            update_submission_status(submission_id, "processing")
+            ocr_text = None
             cleaned_text = clean_ocr_text(submission.get("input_text") or "")
 
         if not cleaned_text.strip():
@@ -205,3 +229,52 @@ def process_submission(submission_id: int) -> None:
     except Exception as error:
         update_submission_status(submission_id, "failed", str(error))
         refund_user_limit(submission["user_id"], submission.get("consumed_limit_type"))
+
+
+def analyze_reviewed_submission(submission_id: int, reviewed_text: str) -> None:
+    submission = get_submission(submission_id)
+    if submission is None:
+        return
+    try:
+        cleaned_text = clean_ocr_text(reviewed_text)
+        if not cleaned_text.strip():
+            raise ValueError("Tekshirish uchun matn bo'sh bo'lmasligi kerak.")
+        update_submission_status(submission_id, "processing")
+        analysis = analyze_essay(cleaned_text)
+        complete_submission(
+            submission_id=submission_id,
+            ocr_text=submission.get("ocr_text"),
+            cleaned_text=cleaned_text,
+            score=analysis["score"],
+            cefr=analysis["cefr"],
+            analysis=analysis,
+        )
+    except Exception as error:
+        update_submission_status(submission_id, "failed", str(error))
+        refund_user_limit(submission["user_id"], submission.get("consumed_limit_type"))
+
+
+def _extract_submission_text(submission: dict) -> tuple[str | None, str]:
+    image_paths = submission.get("image_paths") or []
+    if not image_paths and submission.get("image_path"):
+        image_paths = [submission["image_path"]]
+    if not image_paths:
+        raise ValueError("Rasm fayli topilmadi.")
+
+    ocr_parts: list[str] = []
+    for index, image_path in enumerate(image_paths, start=1):
+        if not Path(image_path).exists():
+            raise ValueError(f"{index}-rasm fayli topilmadi.")
+        ocr_result = extract_text_from_image(image_path)
+        if not ocr_result.text.strip():
+            raise ValueError(f"{index}-rasmdan matn topilmadi. Aniqroq rasm yuboring.")
+        if ocr_result.confidence > 0 and ocr_result.confidence < 0.2:
+            raise ValueError(
+                f"{index}-rasm OCR ishonchi past ({ocr_result.confidence:.0%}). "
+                "Yorug'lik va fokusni yaxshilab qayta yuboring."
+            )
+        ocr_parts.append(f"{index}-rasm:\n{ocr_result.text.strip()}")
+
+    ocr_text = "\n\n".join(ocr_parts)
+    cleaned_text = clean_ocr_text(ocr_text)
+    return ocr_text, cleaned_text

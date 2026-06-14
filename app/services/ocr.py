@@ -56,13 +56,9 @@ def _extract_with_best_available(image_path: str) -> OCRResult:
             errors.append(f"{provider_name}: {error}")
 
     details = "; ".join(errors) if errors else "hech bir OCR provider topilmadi"
-    return OCRResult(
-        text=(
-            "OCR demo mode. Rasm qabul qilindi, lekin avtomatik matn ajratish servisi "
-            f"ishga tushmadi. Sabablar: {details}"
-        ),
-        confidence=0.0,
-        provider="demo",
+    raise RuntimeError(
+        "Rasmdan matn ajratib bo'lmadi. OCR providerlar ishlamadi. "
+        f"Sabablar: {details}"
     )
 
 

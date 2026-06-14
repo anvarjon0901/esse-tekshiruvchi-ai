@@ -7,36 +7,71 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/style.css?v=20260515-1" />
+    <link rel="stylesheet" href="/static/style.css?v=20260527-2" />
   </head>
   <body>
+    <div class="bg-mesh" aria-hidden="true"></div>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="particles" id="particles" aria-hidden="true"></div>
+
     <div class="page-shell">
       <div class="glow glow-one"></div>
       <div class="glow glow-two"></div>
+      <div class="glow glow-three"></div>
 
       <header class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Essay Pilot</p>
-          <h1>Inshoni tekshirishni foydalanuvchi uchun yengil qildik.</h1>
+        <div class="hero-copy card-3d" data-tilt>
+          <div class="hero-badge">
+            <span class="pulse-dot"></span>
+            Essay Pilot AI
+          </div>
+          <h1>Inshoni tekshirish endi tez va aniq</h1>
           <p class="lead">
-            Matn yozing yoki rasm yuklang. Tizim OCR, tahlil va natijani bitta qulay
-            oqimda ko'rsatadi.
+            Matn yozing yoki rasm yuklang. OCR matnini ko'rib chiqing, keyin AI 12 mezon
+            yoki IELTS bo'yicha baholaydi.
           </p>
+          <div class="hero-tags">
+            <span class="tag">O'zbek 75 ball</span>
+            <span class="tag">IELTS Writing</span>
+            <span class="tag">OCR + AI</span>
+          </div>
         </div>
-        <div class="hero-status">
-          <div class="status-card">
-            <span class="status-label">Mening limitim</span>
-            <strong id="limitCount">-</strong>
-            <span id="referralBadge" class="pill">Referral tayyorlanmoqda</span>
+
+        <div class="hero-visual">
+          <div class="scene-3d" id="scene3d" aria-hidden="true">
+            <canvas id="canvas3d"></canvas>
+            <div class="scene-overlay">
+              <div class="floating-card card-layer-1">
+                <span></span><span></span><span></span>
+              </div>
+              <div class="floating-card card-layer-2">
+                <span></span><span></span><span></span><span></span>
+              </div>
+              <div class="scan-beam"></div>
+            </div>
+          </div>
+
+          <div class="status-card card-3d" data-tilt>
+            <div class="status-top">
+              <span class="status-label">Mening limitim</span>
+              <div class="limit-ring">
+                <svg viewBox="0 0 100 100">
+                  <circle class="ring-bg" cx="50" cy="50" r="42" />
+                  <circle class="ring-fill" id="limitRing" cx="50" cy="50" r="42" />
+                </svg>
+                <strong id="limitCount">-</strong>
+              </div>
+            </div>
+            <span id="referralBadge" class="pill shimmer">Referral tayyorlanmoqda</span>
           </div>
         </div>
       </header>
 
       <main class="layout">
-        <section class="panel compose-panel">
+        <section class="panel compose-panel card-3d" data-tilt>
           <div class="panel-head">
             <div>
               <p class="eyebrow">1-qadam</p>
@@ -54,8 +89,7 @@
               <input id="telegramIdInput" type="text" placeholder="Masalan: 998900001122" />
             </label>
             <p class="hint">
-              Telegram ichida ochilganda ID avtomatik olinadi. Brauzer demo rejimida shu yerga
-              test ID kiriting.
+              Telegram ichida ochilganda ID avtomatik olinadi. Brauzer demo rejimida test ID kiriting.
             </p>
           </div>
 
@@ -67,7 +101,7 @@
                   id="essayText"
                   name="text"
                   rows="10"
-                  placeholder="Write your essay here..."
+                  placeholder="Insho matnini shu yerga yozing..."
                 ></textarea>
               </label>
             </div>
@@ -75,33 +109,42 @@
             <div class="field-group hidden" id="imageFieldGroup">
               <label class="upload-box" for="essayImage">
                 <input id="essayImage" name="images" type="file" accept="image/*" multiple />
+                <div class="upload-icon">📄</div>
                 <span class="upload-title">Rasmlarni tanlang</span>
-                <span class="upload-subtitle">
-                  Uzun essay uchun bir nechta sahifani tartib bilan tanlang
-                </span>
+                <span class="upload-subtitle">Uzun essay uchun bir nechta sahifani tartib bilan tanlang</span>
               </label>
               <div id="imagePreview" class="image-preview hidden"></div>
             </div>
 
             <div class="form-actions">
-              <button id="submitBtn" class="primary-btn" type="submit">
-                Inshoni tekshirish
+              <button id="submitBtn" class="primary-btn glow-btn" type="submit">
+                <span class="btn-text">Inshoni tekshirish</span>
+                <span class="btn-shine"></span>
               </button>
-              <button id="clearBtn" class="secondary-btn" type="button">
-                Tozalash
-              </button>
+              <button id="clearBtn" class="secondary-btn" type="button">Tozalash</button>
             </div>
           </form>
 
-          <div class="process-strip">
-            <div class="mini-step">Yuborish</div>
-            <div class="mini-step">OCR / Tozalash</div>
-            <div class="mini-step">AI tahlil</div>
-            <div class="mini-step">Natija</div>
+          <div class="process-strip" id="processStrip">
+            <div class="mini-step" data-step="submit">
+              <span class="step-dot"></span>Yuborish
+            </div>
+            <div class="mini-step" data-step="ocr">
+              <span class="step-dot"></span>OCR
+            </div>
+            <div class="mini-step" data-step="review">
+              <span class="step-dot"></span>Ko'rib chiqish
+            </div>
+            <div class="mini-step" data-step="analyze">
+              <span class="step-dot"></span>AI tahlil
+            </div>
+            <div class="mini-step" data-step="done">
+              <span class="step-dot"></span>Natija
+            </div>
           </div>
         </section>
 
-        <section class="panel result-panel">
+        <section class="panel result-panel card-3d" data-tilt>
           <div class="panel-head">
             <div>
               <p class="eyebrow">2-qadam</p>
@@ -110,21 +153,48 @@
             <span id="resultStatus" class="pill neutral">Kutilmoqda</span>
           </div>
 
+          <div id="loadingState" class="loading-state hidden">
+            <div class="loader-3d">
+              <div class="loader-cube"></div>
+              <div class="loader-cube"></div>
+              <div class="loader-cube"></div>
+            </div>
+            <p id="loadingText">Tekshiruv boshlanmoqda...</p>
+          </div>
+
           <div id="emptyState" class="empty-state">
+            <div class="empty-icon">✨</div>
             Birinchi essay yuborilgach, bu yerda ball, daraja, xatolar va tavsiyalar chiqadi.
           </div>
 
           <div id="resultContent" class="result-content hidden">
-            <div class="score-grid">
-              <div class="metric-card accent">
-                <span>Umumiy ball</span>
-                <strong id="scoreValue">0</strong>
+            <div class="review-card hidden" id="ocrReviewCard">
+              <div class="review-head">
+                <div>
+                  <p class="eyebrow">OCR tekshiruv</p>
+                  <h3>Matnni o'qib, imloviy xatolarni tuzating</h3>
+                </div>
+                <span class="pill warning">Ko'rib chiqish</span>
               </div>
-              <div class="metric-card">
+              <label class="field">
+                <span>OCR ajratgan matn</span>
+                <textarea id="ocrReviewText" rows="12"></textarea>
+              </label>
+              <button id="ocrReviewBtn" class="primary-btn glow-btn" type="button">
+                Endi tekshirish
+              </button>
+            </div>
+
+            <div class="score-grid">
+              <div class="metric-card accent flip-in">
+                <span>Umumiy ball</span>
+                <strong id="scoreValue" class="score-pop">0</strong>
+              </div>
+              <div class="metric-card flip-in" style="animation-delay: 0.1s">
                 <span>Daraja</span>
                 <strong id="cefrValue">A1</strong>
               </div>
-              <div class="metric-card">
+              <div class="metric-card flip-in" style="animation-delay: 0.2s">
                 <span>Provider</span>
                 <strong id="providerValue">demo</strong>
               </div>
@@ -159,7 +229,7 @@
           </div>
         </section>
 
-        <aside class="panel sidebar-panel">
+        <aside class="panel sidebar-panel card-3d" data-tilt>
           <div class="panel-head">
             <div>
               <p class="eyebrow">Hisob</p>
@@ -168,6 +238,7 @@
           </div>
 
           <div class="profile-card">
+            <div class="avatar-orb" aria-hidden="true"></div>
             <p id="userName">Foydalanuvchi aniqlanmoqda...</p>
             <p class="muted">Referral kod</p>
             <strong id="referralCode">-</strong>
@@ -193,6 +264,7 @@
     </div>
 
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/static/app.js?v=20260527-2"></script>
   </body>
 </html>

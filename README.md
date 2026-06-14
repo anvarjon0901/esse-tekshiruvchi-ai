@@ -110,15 +110,35 @@ Keyin brauzerda:
 http://localhost:8000
 ```
 
+### Windows: backend + tunnel birga
+
+```powershell
+.\scripts\start-local.ps1
+```
+
+Tunnel URL `logs/cloudflared-local.out.log` ichida chiqadi. Shu URL ni `.env` dagi `APP_URL` ga yozing.
+
+**Muhim:** `RUN_BOT_WITH_WEB=true` bo'lsa, alohida `python -m bot.main` ishga tushirmang — ikkita polling conflict beradi.
+
 ## Telegram botni ishga tushirish
 
 `.env` ichida `TELEGRAM_BOT_TOKEN` va `APP_URL` ni to'ldiring.
 
+Agar backend bilan birga ishga tushirmoqchi bo'lsangiz:
+
+```text
+RUN_BOT_WITH_WEB=true
+TELEGRAM_BOT_MODE=polling
+```
+
+Alohida bot kerak bo'lsa:
+
 ```bash
+# .env ichida RUN_BOT_WITH_WEB=false qiling
 python -m bot.main
 ```
 
-Bot `/start` da WebApp tugmasini yuboradi.
+Bot `/start` da WebApp tugmasini yuboradi (HTTPS `APP_URL` bo'lsa).
 
 ## Haqiqiy servislarni ulash
 

@@ -9,37 +9,67 @@ from app.config import settings
 
 WORD_PATTERN = re.compile("[A-Za-z\\u00c0-\\u017f\\u02bb\\u2019']+")
 
+UZBEK_CRITERIA: list[tuple[str, str, int]] = [
+    ("topic_coverage", "Mavzuni yoritish", 7),
+    ("thesis_position", "Tezis va pozitsiya", 6),
+    ("arguments_examples", "Dalil va misollar", 7),
+    ("logical_coherence", "Mantiqiy izchillik", 6),
+    ("structure", "Kompozitsiya", 6),
+    ("style_register", "Uslub va registr", 6),
+    ("vocabulary", "Lug'at boyligi", 6),
+    ("grammar", "Grammatika", 7),
+    ("spelling", "Imlo", 6),
+    ("punctuation", "Punktuatsiya", 5),
+    ("conclusion", "Xulosa", 6),
+    ("length_requirements", "Hajm va talabga moslik", 7),
+]
+
+IELTS_CRITERIA: list[tuple[str, str]] = [
+    ("task_response", "Task Response"),
+    ("coherence_cohesion", "Coherence and Cohesion"),
+    ("lexical_resource", "Lexical Resource"),
+    ("grammar_range_accuracy", "Grammatical Range and Accuracy"),
+]
+
+LEGACY_UZBEK_KEYS = ("grammar", "vocabulary", "coherence", "task_response")
+
 SYSTEM_PROMPT = """
 You are a strict but helpful writing examiner for Uzbek and English essays.
-Evaluate only the essay that the user provides. Do not invent a new essay.
-Use the Uzbek language for comments, explanations, summary, and suggestions.
-Give noticeably different scores for weak, average, and strong essays.
-Score each rubric category from 0 to 75, then set the overall score as a realistic weighted result.
-Suggestions must be short advice only, not a rewritten essay.
+Evaluate only the essay provided. Do not invent a new essay.
+Use Uzbek for comments, explanations, summary, and suggestions.
 Do not write a full rewritten essay. Keep improved_version as an empty string.
-First detect the essay language:
-- If it is Uzbek, evaluate Uzbek spelling, apostrophe usage (o', g'), suffixes, sentence structure, style, vocabulary, coherence, and task response.
-- If it is English, evaluate English grammar, spelling, vocabulary, coherence, and task response.
-- If it mixes Uzbek and English, evaluate the dominant language and mention code-mixing if it hurts clarity.
-Use "cefr" as a general level field:
-- For English essays, use CEFR-like values: A1, A2, B1, B2, C1.
-- For Uzbek essays, use Uzbek labels: "Boshlang'ich", "O'rta", "Yaxshi", "Juda yaxshi", "A'lo".
-Return only valid JSON with this exact structure:
+
+First detect language: "uzbek" or "english". If mixed, choose the dominant language.
+
+If language is "uzbek":
+- scoring_system must be "uzbek_75"
+- Use exactly these 12 rubric keys with max_score as shown:
+  topic_coverage (7), thesis_position (6), arguments_examples (7), logical_coherence (6),
+  structure (6), style_register (6), vocabulary (6), grammar (7), spelling (6),
+  punctuation (5), conclusion (6), length_requirements (7)
+- Each criterion: {"score": 0..max_score, "max_score": N, "comment": "..."}
+- Overall score = sum of 12 criterion scores (0-75)
+- cefr: Boshlang'ich | O'rta | Yaxshi | Juda yaxshi | A'lo
+
+If language is "english":
+- scoring_system must be "ielts"
+- Use exactly these 4 rubric keys:
+  task_response, coherence_cohesion, lexical_resource, grammar_range_accuracy
+- Each criterion: {"band": 0..9 in 0.5 steps, "comment": "..."}
+- score = overall band * 10 as integer (e.g. band 6.5 -> score 65)
+- score_display like "6.5/9 IELTS"
+- cefr: A1, A2, B1, B2, C1
+
+Return only valid JSON:
 {
+  "language": "uzbek",
+  "scoring_system": "uzbek_75",
   "score": 0,
-  "cefr": "A1",
-  "rubric": {
-    "grammar": {"score": 0, "comment": ""},
-    "vocabulary": {"score": 0, "comment": ""},
-    "coherence": {"score": 0, "comment": ""},
-    "task_response": {"score": 0, "comment": ""}
-  },
-  "grammar_errors": [
-    {"wrong": "", "corrected": "", "explanation": ""}
-  ],
-  "spelling_errors": [
-    {"wrong": "", "corrected": ""}
-  ],
+  "score_display": "",
+  "cefr": "",
+  "rubric": {},
+  "grammar_errors": [{"wrong": "", "corrected": "", "explanation": ""}],
+  "spelling_errors": [{"wrong": "", "corrected": ""}],
   "suggestions": [""],
   "improved_version": "",
   "summary": ""
@@ -51,12 +81,14 @@ def analyze_essay(text: str) -> dict:
     normalized_text = text.strip()
     if settings.gemini_api_key:
         try:
-            return _normalize_analysis(_analyze_with_gemini(normalized_text), provider="gemini")
+            raw = _analyze_with_gemini(normalized_text)
+            return _normalize_analysis(raw, provider="gemini", source_text=normalized_text)
         except Exception:
             pass
     if settings.openai_api_key:
         try:
-            return _normalize_analysis(_analyze_with_openai(normalized_text), provider="openai")
+            raw = _analyze_with_openai(normalized_text)
+            return _normalize_analysis(raw, provider="openai", source_text=normalized_text)
         except Exception:
             return _demo_analysis(normalized_text, provider="demo-fallback")
     return _demo_analysis(normalized_text, provider="demo")
@@ -73,7 +105,7 @@ def _analyze_with_gemini(text: str) -> dict:
                         {"text": SYSTEM_PROMPT},
                         {
                             "text": (
-                                "Analyze this Uzbek or English essay. Return JSON only, no markdown.\n\n"
+                                "Analyze this essay. Return JSON only, no markdown.\n\n"
                                 f"Essay:\n{text}"
                             )
                         },
@@ -114,7 +146,7 @@ def _analyze_with_openai(text: str) -> dict:
                 {
                     "role": "user",
                     "content": (
-                        "Analyze this Uzbek or English essay strictly and return JSON only.\n\n"
+                        "Analyze this essay strictly and return JSON only.\n\n"
                         f"Essay:\n{text}"
                     ),
                 },
@@ -145,20 +177,52 @@ def _loads_json_content(content: str) -> dict:
     return payload
 
 
-def _normalize_analysis(analysis: dict, provider: str) -> dict:
-    rubric = analysis.get("rubric") if isinstance(analysis.get("rubric"), dict) else {}
-    normalized_rubric = {}
-    for key in ("grammar", "vocabulary", "coherence", "task_response"):
-        item = rubric.get(key) if isinstance(rubric.get(key), dict) else {}
+def _normalize_analysis(analysis: dict, provider: str, source_text: str = "") -> dict:
+    language = _normalize_language(analysis.get("language"), source_text)
+    scoring_system = str(analysis.get("scoring_system") or "").strip().lower()
+    if language == "english" or scoring_system == "ielts":
+        return _normalize_ielts_analysis(analysis, provider, source_text)
+    return _normalize_uzbek_analysis(analysis, provider, source_text)
+
+
+def _normalize_language(value: object, source_text: str) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"uzbek", "uz", "o'zbek", "ozbek"}:
+        return "uzbek"
+    if raw in {"english", "en", "ingliz", "inglizcha"}:
+        return "english"
+    return _detect_language(source_text)
+
+
+def _normalize_uzbek_analysis(analysis: dict, provider: str, source_text: str) -> dict:
+    rubric_in = analysis.get("rubric") if isinstance(analysis.get("rubric"), dict) else {}
+    normalized_rubric: dict[str, dict] = {}
+
+    for key, label, max_score in UZBEK_CRITERIA:
+        item = rubric_in.get(key) if isinstance(rubric_in.get(key), dict) else {}
+        score = _clamp_to_max(item.get("score", item.get("band", 0)), max_score)
         normalized_rubric[key] = {
-            "score": _clamp_score(item.get("score", 0)),
+            "label": label,
+            "score": score,
+            "max_score": max_score,
             "comment": str(item.get("comment", "")).strip()[:280],
         }
 
-    score = _clamp_score(analysis.get("score", _weighted_score(normalized_rubric)))
+    if _looks_like_legacy_rubric(rubric_in):
+        normalized_rubric = _map_legacy_to_uzbek_rubric(rubric_in)
+
+    total_score = sum(item["score"] for item in normalized_rubric.values())
+    total_score = _clamp_to_max(analysis.get("score", total_score), 75)
+    if total_score == 0 and normalized_rubric:
+        total_score = min(75, sum(item["score"] for item in normalized_rubric.values()))
+
+    level = _normalize_uzbek_level(analysis.get("cefr"), total_score)
     return {
-        "score": score,
-        "cefr": _normalize_level(analysis.get("cefr"), score),
+        "language": "uzbek",
+        "scoring_system": "uzbek_75",
+        "score": total_score,
+        "score_display": str(analysis.get("score_display") or f"{total_score}/75"),
+        "cefr": level,
         "rubric": normalized_rubric,
         "grammar_errors": _sanitize_error_list(analysis.get("grammar_errors"), include_explanation=True),
         "spelling_errors": _sanitize_error_list(analysis.get("spelling_errors"), include_explanation=False),
@@ -169,6 +233,129 @@ def _normalize_analysis(analysis: dict, provider: str) -> dict:
     }
 
 
+def _normalize_ielts_analysis(analysis: dict, provider: str, source_text: str) -> dict:
+    rubric_in = analysis.get("rubric") if isinstance(analysis.get("rubric"), dict) else {}
+    normalized_rubric: dict[str, dict] = {}
+    bands: list[float] = []
+
+    for key, label in IELTS_CRITERIA:
+        item = rubric_in.get(key) if isinstance(rubric_in.get(key), dict) else {}
+        band = _parse_ielts_band(item.get("band", item.get("score")))
+        bands.append(band)
+        normalized_rubric[key] = {
+            "label": label,
+            "band": band,
+            "comment": str(item.get("comment", "")).strip()[:280],
+        }
+
+    if _looks_like_legacy_rubric(rubric_in):
+        normalized_rubric, bands = _map_legacy_to_ielts_rubric(rubric_in)
+
+    overall_band = _parse_ielts_band(analysis.get("score"))
+    if overall_band <= 0 and bands:
+        overall_band = round(sum(bands) / len(bands) * 2) / 2
+    overall_band = max(0.0, min(9.0, overall_band))
+    score_int = int(round(overall_band * 10))
+    level = _normalize_level(analysis.get("cefr"), int(overall_band * 10))
+
+    return {
+        "language": "english",
+        "scoring_system": "ielts",
+        "score": score_int,
+        "score_display": str(analysis.get("score_display") or f"{overall_band}/9 IELTS"),
+        "cefr": level,
+        "rubric": normalized_rubric,
+        "grammar_errors": _sanitize_error_list(analysis.get("grammar_errors"), include_explanation=True),
+        "spelling_errors": _sanitize_error_list(analysis.get("spelling_errors"), include_explanation=False),
+        "suggestions": _sanitize_suggestions(analysis.get("suggestions")),
+        "improved_version": "",
+        "summary": str(analysis.get("summary", "")).strip()[:500],
+        "provider": provider,
+    }
+
+
+def _looks_like_legacy_rubric(rubric: dict) -> bool:
+    return any(key in rubric for key in LEGACY_UZBEK_KEYS)
+
+
+def _map_legacy_to_uzbek_rubric(rubric: dict) -> dict[str, dict]:
+    grammar = _legacy_item_score(rubric, "grammar")
+    vocabulary = _legacy_item_score(rubric, "vocabulary")
+    coherence = _legacy_item_score(rubric, "coherence")
+    task = _legacy_item_score(rubric, "task_response")
+
+    seed_scores = {
+        "topic_coverage": task,
+        "thesis_position": max(0, task - 1),
+        "arguments_examples": max(0, task - 1),
+        "logical_coherence": coherence,
+        "structure": max(0, coherence - 1),
+        "style_register": max(0, vocabulary - 1),
+        "vocabulary": vocabulary,
+        "grammar": grammar,
+        "spelling": max(0, grammar - 1),
+        "punctuation": max(0, grammar - 2),
+        "conclusion": max(0, coherence - 1),
+        "length_requirements": task,
+    }
+
+    normalized: dict[str, dict] = {}
+    for key, label, max_score in UZBEK_CRITERIA:
+        raw = seed_scores.get(key, 0)
+        scaled = round(raw / 100 * max_score) if raw > max_score else raw
+        item = rubric.get(key) if isinstance(rubric.get(key), dict) else {}
+        comment = str(item.get("comment", "")).strip()[:280]
+        normalized[key] = {
+            "label": label,
+            "score": _clamp_to_max(scaled, max_score),
+            "max_score": max_score,
+            "comment": comment,
+        }
+    return normalized
+
+
+def _map_legacy_to_ielts_rubric(rubric: dict) -> tuple[dict[str, dict], list[float]]:
+    mapping = {
+        "task_response": _legacy_item_score(rubric, "task_response"),
+        "coherence_cohesion": _legacy_item_score(rubric, "coherence"),
+        "lexical_resource": _legacy_item_score(rubric, "vocabulary"),
+        "grammar_range_accuracy": _legacy_item_score(rubric, "grammar"),
+    }
+    normalized: dict[str, dict] = {}
+    bands: list[float] = []
+    for key, label in IELTS_CRITERIA:
+        band = _score_to_ielts_band(mapping.get(key, 0))
+        item = rubric.get(key) if isinstance(rubric.get(key), dict) else {}
+        normalized[key] = {
+            "label": label,
+            "band": band,
+            "comment": str(item.get("comment", "")).strip()[:280],
+        }
+        bands.append(band)
+    return normalized, bands
+
+
+def _legacy_item_score(rubric: dict, key: str) -> int:
+    item = rubric.get(key) if isinstance(rubric.get(key), dict) else {}
+    return _clamp_score(item.get("score", item.get("band", 0)))
+
+
+def _parse_ielts_band(value: object) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if number > 9:
+        number = number / 10
+    number = round(number * 2) / 2
+    return max(0.0, min(9.0, number))
+
+
+def _score_to_ielts_band(score: int) -> float:
+    band = round(score / 100 * 9 * 2) / 2
+    return max(0.0, min(9.0, band))
+
+
 def _clamp_score(value: object) -> int:
     try:
         number = int(round(float(value)))
@@ -177,13 +364,12 @@ def _clamp_score(value: object) -> int:
     return max(0, min(100, number))
 
 
-def _weighted_score(rubric: dict) -> int:
-    return round(
-        rubric["grammar"]["score"] * 0.3
-        + rubric["vocabulary"]["score"] * 0.25
-        + rubric["coherence"]["score"] * 0.25
-        + rubric["task_response"]["score"] * 0.2
-    )
+def _clamp_to_max(value: object, max_value: int) -> int:
+    try:
+        number = int(round(float(value)))
+    except (TypeError, ValueError):
+        number = 0
+    return max(0, min(max_value, number))
 
 
 def _normalize_level(value: object, score: int) -> str:
@@ -193,6 +379,13 @@ def _normalize_level(value: object, score: int) -> str:
             return level.upper()
         return level[:40]
     return _estimate_cefr(score)
+
+
+def _normalize_uzbek_level(value: object, score: int) -> str:
+    level = str(value or "").strip()
+    if level:
+        return level[:40]
+    return _estimate_uzbek_level(score)
 
 
 def _sanitize_suggestions(value: object) -> list[str]:
@@ -257,31 +450,12 @@ def _demo_analysis(text: str, provider: str) -> dict:
     vocabulary_score = _estimate_vocabulary_score(word_count, unique_ratio)
     coherence_score = _estimate_coherence_score(sentence_count, connector_count, text)
     task_score = _estimate_task_score(word_count)
-    score = round(
-        grammar_score * 0.3
-        + vocabulary_score * 0.25
-        + coherence_score * 0.25
-        + task_score * 0.2
-    )
-    cefr = _estimate_uzbek_level(score) if language == "uzbek" else _estimate_cefr(score)
 
-    rubric = {
-        "grammar": {
-            "score": grammar_score,
-            "comment": _grammar_comment(grammar_errors, grammar_score),
-        },
-        "vocabulary": {
-            "score": vocabulary_score,
-            "comment": _vocabulary_comment(unique_ratio, word_count),
-        },
-        "coherence": {
-            "score": coherence_score,
-            "comment": _coherence_comment(sentence_count, connector_count, text),
-        },
-        "task_response": {
-            "score": task_score,
-            "comment": _task_comment(word_count),
-        },
+    legacy_rubric = {
+        "grammar": {"score": grammar_score, "comment": _grammar_comment(grammar_errors, grammar_score)},
+        "vocabulary": {"score": vocabulary_score, "comment": _vocabulary_comment(unique_ratio, word_count)},
+        "coherence": {"score": coherence_score, "comment": _coherence_comment(sentence_count, connector_count, text)},
+        "task_response": {"score": task_score, "comment": _task_comment(word_count)},
     }
 
     suggestions = _build_targeted_suggestions(
@@ -292,15 +466,37 @@ def _demo_analysis(text: str, provider: str) -> dict:
         connector_count=connector_count,
         avg_sentence_len=avg_sentence_len,
     )
-
     summary = (
         "Matn umumiy ma'noni yetkazadi, lekin aniqlik va grammatik nazoratni "
         "kuchaytirsa natija sezilarli yaxshilanadi."
     )
 
+    if language == "english":
+        rubric, bands = _map_legacy_to_ielts_rubric(legacy_rubric)
+        overall_band = round(sum(bands) / len(bands) * 2) / 2 if bands else 0.0
+        return {
+            "language": "english",
+            "scoring_system": "ielts",
+            "score": int(round(overall_band * 10)),
+            "score_display": f"{overall_band}/9 IELTS",
+            "cefr": _estimate_cefr(int(overall_band * 10)),
+            "rubric": rubric,
+            "grammar_errors": grammar_errors,
+            "spelling_errors": spelling_errors,
+            "suggestions": suggestions,
+            "improved_version": "",
+            "summary": summary,
+            "provider": provider,
+        }
+
+    rubric = _map_legacy_to_uzbek_rubric(legacy_rubric)
+    total_score = min(75, sum(item["score"] for item in rubric.values()))
     return {
-        "score": score,
-        "cefr": cefr,
+        "language": "uzbek",
+        "scoring_system": "uzbek_75",
+        "score": total_score,
+        "score_display": f"{total_score}/75",
+        "cefr": _estimate_uzbek_level(total_score),
         "rubric": rubric,
         "grammar_errors": grammar_errors,
         "spelling_errors": spelling_errors,
@@ -478,13 +674,13 @@ def _estimate_cefr(score: int) -> str:
 
 
 def _estimate_uzbek_level(score: int) -> str:
-    if score >= 92:
-        return "A'lo"
-    if score >= 82:
-        return "Juda yaxshi"
     if score >= 68:
+        return "A'lo"
+    if score >= 56:
+        return "Juda yaxshi"
+    if score >= 42:
         return "Yaxshi"
-    if score >= 50:
+    if score >= 28:
         return "O'rta"
     return "Boshlang'ich"
 
@@ -545,14 +741,3 @@ def _build_targeted_suggestions(
     if avg_sentence_len > 28:
         suggestions.append("Juda uzun gaplarni 2 ta qisqaroq gapga ajrating.")
     return suggestions[:5] or ["Mavzuni aniqroq ochish uchun kirish, asosiy fikr va xulosa qismlarini ajrating."]
-
-
-def _build_improved_version(text: str) -> str:
-    stripped = " ".join(text.split())
-    if not stripped:
-        return "Please add essay text so the system can generate an improved version."
-    if stripped[0].islower():
-        stripped = stripped[0].upper() + stripped[1:]
-    if stripped and stripped[-1] not in ".!?":
-        stripped += "."
-    return stripped

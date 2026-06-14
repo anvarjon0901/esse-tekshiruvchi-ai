@@ -3,6 +3,7 @@ const state = {
   user: null,
   currentSubmissionId: null,
   pollingTimer: null,
+  scene3d: null,
 };
 
 const elements = {
@@ -18,6 +19,8 @@ const elements = {
   clearBtn: document.getElementById("clearBtn"),
   resultStatus: document.getElementById("resultStatus"),
   emptyState: document.getElementById("emptyState"),
+  loadingState: document.getElementById("loadingState"),
+  loadingText: document.getElementById("loadingText"),
   resultContent: document.getElementById("resultContent"),
   scoreValue: document.getElementById("scoreValue"),
   cefrValue: document.getElementById("cefrValue"),
@@ -30,7 +33,11 @@ const elements = {
   improvedCard: document.getElementById("improvedCard"),
   ocrCard: document.getElementById("ocrCard"),
   ocrText: document.getElementById("ocrText"),
+  ocrReviewCard: document.getElementById("ocrReviewCard"),
+  ocrReviewText: document.getElementById("ocrReviewText"),
+  ocrReviewBtn: document.getElementById("ocrReviewBtn"),
   limitCount: document.getElementById("limitCount"),
+  limitRing: document.getElementById("limitRing"),
   referralBadge: document.getElementById("referralBadge"),
   userName: document.getElementById("userName"),
   referralCode: document.getElementById("referralCode"),
@@ -38,6 +45,7 @@ const elements = {
   referralBtn: document.getElementById("referralBtn"),
   historyList: document.getElementById("historyList"),
   refreshHistoryBtn: document.getElementById("refreshHistoryBtn"),
+  processStrip: document.getElementById("processStrip"),
 };
 
 const telegramApp = window.Telegram?.WebApp;
@@ -55,12 +63,16 @@ elements.essayImage.addEventListener("change", handleImagePreview);
 elements.essayForm.addEventListener("submit", handleSubmit);
 elements.clearBtn.addEventListener("click", resetWorkspace);
 elements.referralBtn.addEventListener("click", handleReferralClaim);
+elements.ocrReviewBtn.addEventListener("click", handleOcrReviewSubmit);
 elements.refreshHistoryBtn.addEventListener("click", () => {
   if (state.user?.telegram_id) {
     fetchHistory(state.user.telegram_id);
   }
 });
 
+initParticles();
+initCardTilt();
+initScene3d();
 bootstrap();
 
 async function bootstrap() {
@@ -135,7 +147,7 @@ function handleImagePreview(event) {
     .map((file, index) => {
       const imageUrl = URL.createObjectURL(file);
       return `
-        <figure>
+        <figure style="animation-delay:${index * 0.08}s">
           <img src="${imageUrl}" alt="${index + 1}-rasm preview" />
           <figcaption>${index + 1}-rasm</figcaption>
         </figure>
@@ -179,6 +191,8 @@ async function handleSubmit(event) {
 
   elements.submitBtn.disabled = true;
   updateStatus("Tekshiruv navbatga olindi", "neutral");
+  updateProcessStrip("queued", state.mode === "image" ? "image" : "text");
+  showLoading("Tekshiruv navbatga olindi...");
   try {
     const submission = await api("/api/submissions", {
       method: "POST",
@@ -189,6 +203,7 @@ async function handleSubmit(event) {
     startPolling(submission.id);
     await refreshUserAndHistory();
   } catch (error) {
+    hideLoading();
     updateStatus(error.message, "warning");
   } finally {
     elements.submitBtn.disabled = false;
@@ -204,6 +219,7 @@ function resetWorkspace() {
   elements.imagePreview.classList.add("hidden");
   elements.emptyState.classList.remove("hidden");
   elements.resultContent.classList.add("hidden");
+  hideLoading();
   elements.scoreValue.textContent = "-";
   elements.cefrValue.textContent = "-";
   elements.providerValue.textContent = "demo";
@@ -215,17 +231,26 @@ function resetWorkspace() {
   elements.improvedCard.classList.add("hidden");
   elements.ocrText.textContent = "";
   elements.ocrCard.classList.add("hidden");
+  elements.ocrReviewText.value = "";
+  elements.ocrReviewCard.classList.add("hidden");
+  updateProcessStrip(null);
   updateStatus("Kutilmoqda", "neutral");
 }
 
 function startPolling(submissionId) {
   stopPolling();
   state.pollingTimer = window.setInterval(async () => {
-    const submission = await api(submissionPath(submissionId));
-    renderSubmission(submission);
-    if (["completed", "failed"].includes(submission.status)) {
+    try {
+      const submission = await api(submissionPath(submissionId));
+      renderSubmission(submission);
+      if (["completed", "failed", "reviewing"].includes(submission.status)) {
+        stopPolling();
+        await refreshUserAndHistory();
+      }
+    } catch (error) {
       stopPolling();
-      await refreshUserAndHistory();
+      hideLoading();
+      updateStatus(error.message || "Natijani olishda xatolik.", "warning");
     }
   }, 1800);
 }
@@ -276,19 +301,73 @@ async function handleReferralClaim() {
   }
 }
 
+async function handleOcrReviewSubmit() {
+  if (!state.currentSubmissionId || !state.user?.telegram_id) {
+    updateStatus("Avval rasm yuboring.", "warning");
+    return;
+  }
+  const reviewedText = elements.ocrReviewText.value.trim();
+  if (!reviewedText) {
+    updateStatus("OCR matni bo'sh bo'lmasligi kerak.", "warning");
+    return;
+  }
+
+  elements.ocrReviewBtn.disabled = true;
+  updateStatus("AI tahlil boshlanmoqda", "warning");
+  updateProcessStrip("processing", "image");
+  showLoading("AI tahlil qilmoqda...");
+  try {
+    const submission = await api(
+      `/api/submissions/${state.currentSubmissionId}/analyze?telegram_id=${encodeURIComponent(state.user.telegram_id)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: reviewedText }),
+      },
+    );
+    renderSubmission(submission);
+    startPolling(state.currentSubmissionId);
+    await refreshUserAndHistory();
+  } catch (error) {
+    hideLoading();
+    updateStatus(error.message, "warning");
+  } finally {
+    elements.ocrReviewBtn.disabled = false;
+  }
+}
+
 function renderUser(user) {
-  elements.limitCount.textContent = user.available_limit;
+  const limit = user.available_limit ?? 0;
+  elements.limitCount.textContent = limit;
+  animateLimitRing(limit);
   elements.referralBadge.textContent = `Kod: ${user.referral_code}`;
   elements.userName.textContent = user.full_name || `Telegram #${user.telegram_id}`;
   elements.referralCode.textContent = user.referral_code;
+}
+
+function animateLimitRing(limit) {
+  if (!elements.limitRing) return;
+  const max = 20;
+  const pct = Math.min(limit / max, 1);
+  const circumference = 264;
+  elements.limitRing.style.strokeDashoffset = String(circumference * (1 - pct));
 }
 
 function renderSubmission(submission) {
   elements.emptyState.classList.add("hidden");
   elements.resultContent.classList.remove("hidden");
   updateStatus(mapStatus(submission.status), mapStatusTone(submission.status));
+  updateProcessStrip(submission.status, submission.source_type);
 
   if (submission.status !== "completed") {
+    if (["queued", "ocr_processing", "processing"].includes(submission.status)) {
+      showLoading(mapStatus(submission.status) + "...");
+    } else if (submission.status === "reviewing") {
+      hideLoading();
+    } else if (submission.status === "failed") {
+      hideLoading();
+    }
+
     elements.scoreValue.textContent = "-";
     elements.cefrValue.textContent = "-";
     elements.providerValue.textContent = "...";
@@ -296,18 +375,30 @@ function renderSubmission(submission) {
     elements.grammarErrors.innerHTML = "";
     elements.spellingErrors.innerHTML = "";
     elements.suggestionList.innerHTML = "";
-    elements.ocrCard.classList.add("hidden");
+    elements.ocrCard.classList.toggle("hidden", !submission.ocr_text);
+    elements.ocrText.textContent = submission.ocr_text || "";
     elements.improvedCard.classList.add("hidden");
+    elements.ocrReviewCard.classList.toggle("hidden", submission.status !== "reviewing");
+    if (submission.status === "reviewing") {
+      const reviewText = submission.cleaned_text || submission.ocr_text || "";
+      if (document.activeElement !== elements.ocrReviewText) {
+        elements.ocrReviewText.value = reviewText;
+      }
+      elements.providerValue.textContent = "OCR";
+      elements.improvedVersion.textContent = "";
+    }
     if (submission.status === "failed") {
       elements.improvedVersion.textContent = submission.error_message || "Xatolik yuz berdi.";
-    } else {
+    } else if (submission.status !== "reviewing") {
       elements.improvedVersion.textContent = "Essay tekshirilmoqda. Natija shu yerda chiqadi.";
     }
     return;
   }
 
+  hideLoading();
   const analysis = submission.analysis || {};
-  elements.scoreValue.textContent = formatScoreValue(submission, analysis);
+  elements.ocrReviewCard.classList.add("hidden");
+  animateScore(elements.scoreValue, formatScoreValue(submission, analysis));
   elements.cefrValue.textContent = submission.cefr ?? analysis.cefr ?? "-";
   elements.providerValue.textContent = analysis.provider || "demo";
   const improvedVersion = (analysis.improved_version || "").trim();
@@ -327,17 +418,76 @@ function renderSubmission(submission) {
   }
 }
 
+function showLoading(text) {
+  elements.loadingState.classList.remove("hidden");
+  elements.loadingText.textContent = text;
+}
+
+function hideLoading() {
+  elements.loadingState.classList.add("hidden");
+}
+
+function updateProcessStrip(status, sourceType = "text") {
+  if (!elements.processStrip) return;
+  const isImage = sourceType === "image";
+  const allSteps = ["submit", "ocr", "review", "analyze", "done"];
+
+  const flows = {
+    text: {
+      queued: ["submit"],
+      processing: ["submit", "analyze"],
+      completed: ["submit", "analyze", "done"],
+      failed: [],
+    },
+    image: {
+      queued: ["submit"],
+      ocr_processing: ["submit", "ocr"],
+      reviewing: ["submit", "ocr", "review"],
+      processing: ["submit", "ocr", "review", "analyze"],
+      completed: ["submit", "ocr", "review", "analyze", "done"],
+      failed: [],
+    },
+  };
+
+  const flow = isImage ? flows.image : flows.text;
+  const activeSteps = status ? flow[status] || [] : [];
+  const activeIndex = activeSteps.length - 1;
+
+  elements.processStrip.querySelectorAll(".mini-step").forEach((el) => {
+    const step = el.dataset.step;
+    if (!isImage && (step === "ocr" || step === "review")) {
+      el.style.opacity = "0.35";
+    } else {
+      el.style.opacity = "1";
+    }
+    const idx = allSteps.indexOf(step);
+    el.classList.remove("active", "done");
+    if (idx < activeIndex) {
+      el.classList.add("done");
+    } else if (idx === activeIndex) {
+      el.classList.add("active");
+    }
+  });
+}
+
+function animateScore(element, finalText) {
+  element.textContent = finalText;
+  element.classList.remove("score-pop");
+  void element.offsetWidth;
+  element.classList.add("score-pop");
+}
+
 function renderRubric(rubric) {
   const items = Object.entries(rubric);
   elements.rubricList.innerHTML = items
     .map(
-      ([key, value]) => {
+      ([key, value], index) => {
         const label = value.label || formatKey(key);
-        const score = value.score ?? value.band ?? "-";
-        const maxScore = value.max_score ? `/${value.max_score}` : "";
+        const score = value.band ?? value.score ?? "-";
+        const maxScore = value.band !== undefined ? "/9" : value.max_score ? `/${value.max_score}` : "";
         const comment = value.comment || "";
         return `
-        <div class="stack-item">
+        <div class="stack-item" style="animation-delay:${index * 0.05}s">
           <strong>${escapeHtml(label)}: ${escapeHtml(score)}${escapeHtml(maxScore)}</strong>
           <small>${escapeHtml(comment)}</small>
         </div>
@@ -355,8 +505,8 @@ function renderGrammarErrors(errors) {
   }
   elements.grammarErrors.innerHTML = errors
     .map(
-      (item) => `
-        <div class="stack-item">
+      (item, index) => `
+        <div class="stack-item" style="animation-delay:${index * 0.05}s">
           <strong>${escapeHtml(item.wrong)} -> ${escapeHtml(item.corrected)}</strong>
           <small>${escapeHtml(item.explanation || "")}</small>
         </div>
@@ -372,8 +522,8 @@ function renderSpellingErrors(errors) {
   }
   elements.spellingErrors.innerHTML = errors
     .map(
-      (item) => `
-        <div class="stack-item">
+      (item, index) => `
+        <div class="stack-item" style="animation-delay:${index * 0.05}s">
           <strong>Imlo: ${escapeHtml(item.wrong)} -> ${escapeHtml(item.corrected)}</strong>
         </div>
       `,
@@ -383,7 +533,10 @@ function renderSpellingErrors(errors) {
 
 function renderSuggestions(suggestions) {
   elements.suggestionList.innerHTML = suggestions
-    .map((item) => `<div class="stack-item"><strong>${escapeHtml(item)}</strong></div>`)
+    .map(
+      (item, index) =>
+        `<div class="stack-item" style="animation-delay:${index * 0.05}s"><strong>${escapeHtml(item)}</strong></div>`,
+    )
     .join("");
 }
 
@@ -396,8 +549,8 @@ function renderHistory(history) {
 
   elements.historyList.innerHTML = history
     .map(
-      (item) => `
-        <button class="history-item" type="button" data-id="${item.id}">
+      (item, index) => `
+        <button class="history-item" type="button" data-id="${item.id}" style="animation-delay:${index * 0.06}s">
           <strong>#${item.id} | ${item.source_type.toUpperCase()}</strong>
           <p>Status: ${escapeHtml(mapStatus(item.status))}</p>
           <p>Ball: ${escapeHtml(item.score ?? "-")} | Daraja: ${escapeHtml(item.cefr ?? "-")}</p>
@@ -408,6 +561,7 @@ function renderHistory(history) {
 
   document.querySelectorAll(".history-item[data-id]").forEach((button) => {
     button.addEventListener("click", async () => {
+      state.currentSubmissionId = Number(button.dataset.id);
       const submission = await api(submissionPath(button.dataset.id));
       renderSubmission(submission);
     });
@@ -429,6 +583,8 @@ function updateStatus(text, tone) {
 function mapStatus(status) {
   const mapping = {
     queued: "Navbatda",
+    ocr_processing: "OCR o'qilmoqda",
+    reviewing: "Matnni ko'rib chiqing",
     processing: "Tekshirilmoqda",
     completed: "Tayyor",
     failed: "Xatolik",
@@ -439,6 +595,8 @@ function mapStatus(status) {
 function mapStatusTone(status) {
   const mapping = {
     queued: "neutral",
+    ocr_processing: "warning",
+    reviewing: "warning",
     processing: "warning",
     completed: "success",
     failed: "warning",
@@ -480,7 +638,11 @@ function formatScoreValue(submission, analysis) {
     return analysis.score_display;
   }
   if (analysis.scoring_system === "ielts" && typeof analysis.score === "number") {
-    return `${analysis.score / 10}/9 IELTS`;
+    const band = (analysis.score / 10).toFixed(1).replace(/\.0$/, "");
+    return `${band}/9 IELTS`;
+  }
+  if (analysis.scoring_system === "uzbek_75") {
+    return `${submission.score ?? analysis.score ?? "-"}/75`;
   }
   return submission.score ?? analysis.score ?? "-";
 }
@@ -511,4 +673,123 @@ async function api(path, options = {}) {
     throw new Error(detail);
   }
   return response.json();
+}
+
+/* ── Visual effects ── */
+
+function initParticles() {
+  const container = document.getElementById("particles");
+  if (!container) return;
+  const count = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 30;
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement("div");
+    p.className = "particle";
+    p.style.left = `${Math.random() * 100}%`;
+    p.style.animationDuration = `${8 + Math.random() * 12}s`;
+    p.style.animationDelay = `${Math.random() * 10}s`;
+    p.style.opacity = String(0.2 + Math.random() * 0.5);
+    container.appendChild(p);
+  }
+}
+
+function initCardTilt() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  document.querySelectorAll("[data-tilt]").forEach((card) => {
+    card.addEventListener("mousemove", (e) => {
+      const rect = card.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width - 0.5;
+      const y = (e.clientY - rect.top) / rect.height - 0.5;
+      card.style.transform = `perspective(800px) rotateY(${x * 6}deg) rotateX(${-y * 6}deg) translateZ(4px)`;
+    });
+    card.addEventListener("mouseleave", () => {
+      card.style.transform = "";
+    });
+  });
+}
+
+function initScene3d() {
+  if (typeof THREE === "undefined") return;
+  const canvas = document.getElementById("canvas3d");
+  const container = document.getElementById("scene3d");
+  if (!canvas || !container) return;
+
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(container.clientWidth, container.clientHeight);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+  camera.position.z = 5;
+
+  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(ambient);
+  const point = new THREE.PointLight(0x4f8cff, 1.2, 20);
+  point.position.set(2, 3, 4);
+  scene.add(point);
+  const point2 = new THREE.PointLight(0x22d3a8, 0.8, 20);
+  point2.position.set(-3, -1, 3);
+  scene.add(point2);
+
+  const group = new THREE.Group();
+
+  const paperGeo = new THREE.BoxGeometry(1.6, 2.2, 0.06);
+  const paperMat = new THREE.MeshPhongMaterial({
+    color: 0x1a2540,
+    emissive: 0x0a1020,
+    shininess: 60,
+    transparent: true,
+    opacity: 0.85,
+  });
+  const paper = new THREE.Mesh(paperGeo, paperMat);
+  group.add(paper);
+
+  const edgeGeo = new THREE.EdgesGeometry(paperGeo);
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x4f8cff, transparent: true, opacity: 0.6 });
+  const edges = new THREE.LineSegments(edgeGeo, edgeMat);
+  group.add(edges);
+
+  for (let i = 0; i < 4; i++) {
+    const lineGeo = new THREE.BoxGeometry(1.0, 0.04, 0.02);
+    const lineMat = new THREE.MeshPhongMaterial({
+      color: i % 2 === 0 ? 0x4f8cff : 0x22d3a8,
+      emissive: i % 2 === 0 ? 0x1a3060 : 0x0a4030,
+    });
+    const line = new THREE.Mesh(lineGeo, lineMat);
+    line.position.set(0, 0.7 - i * 0.35, 0.04);
+    if (i === 2) line.scale.x = 0.7;
+    if (i === 3) line.scale.x = 0.5;
+    group.add(line);
+  }
+
+  const ringGeo = new THREE.TorusGeometry(1.1, 0.015, 8, 64);
+  const ringMat = new THREE.MeshPhongMaterial({
+    color: 0x22d3a8,
+    emissive: 0x0a3020,
+    transparent: true,
+    opacity: 0.5,
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+
+  scene.add(group);
+  state.scene3d = { renderer, scene, camera, group, container };
+
+  function animate() {
+    requestAnimationFrame(animate);
+    group.rotation.y += 0.006;
+    group.rotation.x = Math.sin(Date.now() * 0.001) * 0.08;
+    ring.rotation.z += 0.01;
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  const resizeObserver = new ResizeObserver(() => {
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  });
+  resizeObserver.observe(container);
 }

@@ -121,6 +121,24 @@ def _payment_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def _pending_payment_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Chek yuborish", callback_data="payment:send_receipt"),
+                InlineKeyboardButton(text="Bekor qilish", callback_data="payment:cancel"),
+            ]
+        ]
+    )
+
+
+def _is_receipt_caption(caption: str | None) -> bool:
+    if not caption:
+        return False
+    lowered = caption.strip().lower()
+    return any(token in lowered for token in ("chek", "чек", "to'lov", "tolov", "payment", "receipt"))
+
+
 def _admin_payment_keyboard(telegram_id: str, limits: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -393,8 +411,12 @@ def _format_submission_result(submission: dict) -> str:
             if not isinstance(item, dict):
                 continue
             label = item.get("label") or _rubric_label(key)
-            score = item.get("score", item.get("band", "-"))
-            max_score = f"/{item['max_score']}" if item.get("max_score") else ""
+            if "band" in item:
+                score = item.get("band", "-")
+                max_score = "/9"
+            else:
+                score = item.get("score", "-")
+                max_score = f"/{item['max_score']}" if item.get("max_score") else ""
             lines.append(f"{index}. {label}: {score}{max_score}")
 
     suggestions = analysis.get("suggestions") if isinstance(analysis.get("suggestions"), list) else []
@@ -473,18 +495,20 @@ async def start(message: Message, command: CommandObject, bot: Bot) -> None:
         except ValueError as error:
             referral_note = f"\n\nReferral: {error}"
 
+    webapp_note = ""
     if not settings.app_url.startswith("https://"):
-        await message.answer(
-            "WebApp ochilishi uchun APP_URL public HTTPS bo'lishi kerak.\n\n"
-            f"Hozirgi APP_URL: {settings.app_url}"
+        webapp_note = (
+            "\n\nEslatma: WebApp tugmasi uchun APP_URL HTTPS bo'lishi kerak. "
+            f"Hozirgi APP_URL: {settings.app_url}\n"
+            "Matn yoki rasm yuborish botda ishlaydi."
         )
-        return
 
     text = (
         "Salom. Menga o'zbek yoki ingliz tilidagi inshoni matn yoki rasm qilib yuboring.\n"
         "O'zbekcha insho 75 ballik 12 mezon bo'yicha, inglizcha insho IELTS tizimida baholanadi.\n"
         f"{referral_note}\n\n"
         f"Sizda hozir {user['available_limit']} ta limit bor."
+        f"{webapp_note}"
     )
     await message.answer(text, reply_markup=_main_keyboard())
 
@@ -694,9 +718,12 @@ async def payment_package_callback(callback: CallbackQuery, bot: Bot) -> None:
         full_name=callback.from_user.full_name or "",
         username=callback.from_user.username or "",
     )
-    PENDING_PAYMENTS[user_id] = {"limits": limits, "price": price}
+    PENDING_PAYMENTS[user_id] = {"limits": limits, "price": price, "awaiting_receipt": False}
 
-    await callback.message.answer(_payment_details_text(user_id, limits, price), reply_markup=_main_keyboard())
+    await callback.message.answer(
+        _payment_details_text(user_id, limits, price),
+        reply_markup=_pending_payment_keyboard(),
+    )
     sent_count = await _notify_admins_about_payment(
         bot=bot,
         user=user,
@@ -714,21 +741,57 @@ async def payment_package_callback(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
+@dp.callback_query(F.data == "payment:send_receipt")
+async def payment_send_receipt_callback(callback: CallbackQuery) -> None:
+    if callback.from_user is None or callback.message is None:
+        return
+    user_id = str(callback.from_user.id)
+    pending = PENDING_PAYMENTS.get(user_id)
+    if pending is None:
+        await callback.answer("Faol to'lov so'rovi topilmadi.", show_alert=True)
+        return
+    pending["awaiting_receipt"] = True
+    await callback.message.answer(
+        "Chek screenshotini yuboring. Captionga 'chek' yozsangiz ham qabul qilinadi."
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "payment:cancel")
+async def payment_cancel_callback(callback: CallbackQuery) -> None:
+    if callback.from_user is None:
+        return
+    user_id = str(callback.from_user.id)
+    PENDING_PAYMENTS.pop(user_id, None)
+    if callback.message is not None:
+        await callback.message.answer("To'lov so'rovi bekor qilindi. Insho yuborishda davom etishingiz mumkin.")
+    await callback.answer("Bekor qilindi.")
+
+
 @dp.message(F.photo | F.document)
 async def receipt_message(message: Message, bot: Bot) -> None:
     if message.from_user is None:
         return
     user_id = str(message.from_user.id)
     pending = PENDING_PAYMENTS.get(user_id)
+    image = await _download_image_from_message(bot, message)
+    if image is None:
+        await message.answer("Iltimos, insho matnini yoki rasm formatidagi inshoni yuboring.")
+        return
+
     if pending is None:
-        image = await _download_image_from_message(bot, message)
-        if image is None:
-            await message.answer("Iltimos, insho matnini yoki rasm formatidagi inshoni yuboring.")
-            return
         image_content, image_filename = image
         await _process_direct_submission(message, image_content=image_content, image_filename=image_filename)
         return
 
+    caption = message.caption
+    treat_as_receipt = pending.get("awaiting_receipt") or _is_receipt_caption(caption)
+    if not treat_as_receipt:
+        image_content, image_filename = image
+        await _process_direct_submission(message, image_content=image_content, image_filename=image_filename)
+        return
+
+    pending["awaiting_receipt"] = False
     sent_count = await _send_receipt_to_admins(bot, message, pending)
     if sent_count:
         await message.answer("Chekingiz adminga yuborildi. Tasdiqlangandan keyin limit qo'shiladi.")
@@ -783,6 +846,7 @@ async def confirm_payment_callback(callback: CallbackQuery, bot: Bot) -> None:
         f"Jami limit: {updated_user['available_limit']}"
     )
     await _replace_admin_payment_message(callback, text)
+    PENDING_PAYMENTS.pop(telegram_id, None)
     await bot.send_message(
         telegram_id,
         f"To'lovingiz tasdiqlandi. Hisobingizga {limits} ta limit qo'shildi.\n"
@@ -835,10 +899,15 @@ async def help_callback(callback: CallbackQuery) -> None:
 
 
 async def start_polling() -> None:
-    bot = create_bot()
+    from aiogram.client.session.aiohttp import AiohttpSession
+
+    session = AiohttpSession(timeout=60)
+    bot = Bot(token=settings.telegram_bot_token, session=session)
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot)
+        me = await bot.get_me()
+        print(f"Bot ishga tushdi: @{me.username} (polling)")
+        await dp.start_polling(bot, handle_signals=False)
     finally:
         await bot.session.close()
 

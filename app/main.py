@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -18,21 +19,9 @@ init_db()
 bot_task: asyncio.Task | None = None
 webhook_bot = None
 
-app = FastAPI(title=settings.app_name)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-app.include_router(api_router)
-app.mount("/static", StaticFiles(directory=settings.frontend_dir), name="static")
-
-
-@app.on_event("startup")
-async def start_telegram_bot() -> None:
+@asynccontextmanager
+async def lifespan(_: FastAPI):
     global bot_task, webhook_bot
     if settings.run_bot_with_web and settings.telegram_bot_token:
         if settings.telegram_bot_mode == "webhook":
@@ -45,22 +34,33 @@ async def start_telegram_bot() -> None:
             from bot.main import start_polling
 
             bot_task = asyncio.create_task(start_polling())
+    try:
+        yield
+    finally:
+        if bot_task and not bot_task.done():
+            bot_task.cancel()
+            try:
+                await bot_task
+            except asyncio.CancelledError:
+                pass
+        if webhook_bot is not None:
+            from bot.main import close_webhook_bot
+
+            await close_webhook_bot(webhook_bot)
+            webhook_bot = None
 
 
-@app.on_event("shutdown")
-async def stop_telegram_bot() -> None:
-    global webhook_bot
-    if bot_task and not bot_task.done():
-        bot_task.cancel()
-        try:
-            await bot_task
-        except asyncio.CancelledError:
-            pass
-    if webhook_bot is not None:
-        from bot.main import close_webhook_bot
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-        await close_webhook_bot(webhook_bot)
-        webhook_bot = None
+app.include_router(api_router)
+app.mount("/static", StaticFiles(directory=settings.frontend_dir), name="static")
 
 
 @app.post("/api/telegram/webhook", include_in_schema=False)
