@@ -5,7 +5,4 @@ requests==2.32.3
 chardet==5.2.0
 python-dotenv==1.0.1
 aiogram==3.13.1
-paddlepaddle>=3.0.0
-paddleocr>=3.0.0
 pillow==10.4.0
-pytesseract==0.3.13

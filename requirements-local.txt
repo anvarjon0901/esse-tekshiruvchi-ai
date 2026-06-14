@@ -1,0 +1,5 @@
+# Mahalliy OCR uchun (Windows/Linux desktop). Serverga qo'yishda shart emas.
+-r requirements.txt
+paddlepaddle>=3.0.0
+paddleocr>=3.0.0
+pytesseract==0.3.13

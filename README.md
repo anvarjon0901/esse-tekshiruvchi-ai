@@ -96,7 +96,13 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-`PaddleOCR` uchun odatda alohida `pip install paddlepaddle paddleocr` qilish shart emas, chunki ular `requirements.txt` ichida bor.
+Mahalliy PaddleOCR kerak bo'lsa (ixtiyoriy):
+
+```bash
+pip install -r requirements-local.txt
+```
+
+Server (Render/VPS) uchun `requirements.txt` yetarli — OCR uchun `GEMINI_API_KEY` va `OCR_PROVIDER=gemini` ishlating.
 
 ## Backendni ishga tushirish
 

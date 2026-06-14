@@ -103,7 +103,13 @@ def _extract_with_paddleocr(image_path: str) -> OCRResult:
 
 @lru_cache(maxsize=1)
 def _get_paddleocr_client():
-    from paddleocr import PaddleOCR
+    try:
+        from paddleocr import PaddleOCR
+    except ImportError as error:
+        raise RuntimeError(
+            "PaddleOCR o'rnatilmagan. Mahalliy: pip install -r requirements-local.txt. "
+            "Serverda: OCR_PROVIDER=gemini va GEMINI_API_KEY ishlating."
+        ) from error
 
     return PaddleOCR(
         lang=settings.paddle_ocr_lang,

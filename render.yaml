@@ -13,7 +13,7 @@ services:
       - key: UPLOADS_DIR
         value: ./uploads
       - key: OCR_PROVIDER
-        value: auto
+        value: gemini
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_OCR_MODEL
