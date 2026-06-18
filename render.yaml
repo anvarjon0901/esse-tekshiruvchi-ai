@@ -12,7 +12,7 @@ services:
       - key: APP_URL
         sync: false
       - key: DATABASE_PATH
-        value: ./data/essay_pilot.db
+        value: ./data/essay_pilot_clean.db
       - key: UPLOADS_DIR
         value: ./uploads
       - key: OCR_PROVIDER
