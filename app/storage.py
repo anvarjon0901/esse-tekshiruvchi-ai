@@ -1,6 +1,8 @@
 import json
+import os
 import secrets
 import sqlite3
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -400,7 +402,19 @@ def confirm_payment(telegram_id: str, limits: int, note: str = "") -> dict:
 
 
 def save_upload_file(filename: str, content: bytes) -> str:
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     safe_name = f"{secrets.token_hex(8)}-{Path(filename).name}"
     file_path = settings.uploads_dir / safe_name
-    file_path.write_bytes(content)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{safe_name}.", dir=settings.uploads_dir)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as tmp_file:
+            tmp_file.write(content)
+        tmp_path.replace(file_path)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     return str(file_path)

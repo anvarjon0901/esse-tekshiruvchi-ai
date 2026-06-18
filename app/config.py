@@ -12,7 +12,12 @@ load_dotenv(BASE_DIR / ".env")
 @dataclass
 class Settings:
     app_name: str = os.getenv("APP_NAME", "Essay Pilot")
-    app_url: str = os.getenv("APP_URL", "http://localhost:8000")
+    app_url: str = (
+        os.getenv("APP_URL")
+        or os.getenv("RENDER_EXTERNAL_URL")
+        or os.getenv("PUBLIC_URL")
+        or "http://localhost:8000"
+    ).strip().rstrip("/")
     database_path: Path = (BASE_DIR / os.getenv("DATABASE_PATH", "data/essay_pilot.db")).resolve()
     uploads_dir: Path = (BASE_DIR / os.getenv("UPLOADS_DIR", "uploads")).resolve()
     frontend_dir: Path = (BASE_DIR / "frontend").resolve()

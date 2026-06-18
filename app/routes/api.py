@@ -116,13 +116,13 @@ async def submit_essay(
 
     image_paths: list[str] = []
     source_type = "text"
-    if upload_files:
-        for upload in upload_files:
-            image_bytes = await upload.read()
-            image_paths.append(save_upload_file(upload.filename or "essay.jpg", image_bytes))
-        source_type = "image"
-
     try:
+        if upload_files:
+            for upload in upload_files:
+                image_bytes = await upload.read()
+                image_paths.append(save_upload_file(upload.filename or "essay.jpg", image_bytes))
+            source_type = "image"
+
         submission = create_submission(
             user_id=user["id"],
             source_type=source_type,
@@ -131,6 +131,7 @@ async def submit_essay(
             image_paths=image_paths,
         )
     except Exception:
+        _cleanup_saved_uploads(image_paths)
         refund_user_limit(user["id"], consumed_limit_type)
         raise
     background_tasks.add_task(process_submission, submission["id"], source_type == "image")
@@ -278,3 +279,13 @@ def _extract_submission_text(submission: dict) -> tuple[str | None, str]:
     ocr_text = "\n\n".join(ocr_parts)
     cleaned_text = clean_ocr_text(ocr_text)
     return ocr_text, cleaned_text
+
+
+def _cleanup_saved_uploads(image_paths: list[str]) -> None:
+    for image_path in image_paths:
+        if not image_path:
+            continue
+        try:
+            Path(image_path).unlink(missing_ok=True)
+        except OSError:
+            continue

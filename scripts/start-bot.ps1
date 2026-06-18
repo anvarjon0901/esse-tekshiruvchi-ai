@@ -18,6 +18,9 @@ if (-not (Test-Path ".env")) {
     exit 1
 }
 
+$env:RUN_BOT_WITH_WEB = "false"
+$env:TELEGRAM_BOT_MODE = "polling"
+
 $runningBots = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
     Where-Object { $_.CommandLine -like "*bot.main*" }
 if ($runningBots) {
