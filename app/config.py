@@ -9,15 +9,26 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
+def resolve_app_url() -> str:
+    app_url = os.getenv("APP_URL", "").strip().rstrip("/")
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    public_url = os.getenv("PUBLIC_URL", "").strip().rstrip("/")
+
+    if app_url and "trycloudflare.com" not in app_url.lower():
+        return app_url
+    if render_url:
+        return render_url
+    if app_url:
+        return app_url
+    if public_url:
+        return public_url
+    return "http://localhost:8000"
+
+
 @dataclass
 class Settings:
     app_name: str = os.getenv("APP_NAME", "Essay Pilot")
-    app_url: str = (
-        os.getenv("APP_URL")
-        or os.getenv("RENDER_EXTERNAL_URL")
-        or os.getenv("PUBLIC_URL")
-        or "http://localhost:8000"
-    ).strip().rstrip("/")
+    app_url: str = resolve_app_url()
     database_path: Path = (BASE_DIR / os.getenv("DATABASE_PATH", "data/essay_pilot.db")).resolve()
     uploads_dir: Path = (BASE_DIR / os.getenv("UPLOADS_DIR", "uploads")).resolve()
     frontend_dir: Path = (BASE_DIR / "frontend").resolve()

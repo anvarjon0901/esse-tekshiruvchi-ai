@@ -9,8 +9,6 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
-      - key: APP_URL
-        sync: false
       - key: DATABASE_PATH
         value: ./data/essay_pilot_clean.db
       - key: UPLOADS_DIR
